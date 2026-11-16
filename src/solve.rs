@@ -30,6 +30,21 @@ pub struct Params {
     /// step again (0 = fixed step)
     pub adapt_fails: usize,
     pub shrink_min: f64,
+    /// cut the layout at a random position (instead of the middle) when the bin is shrunk
+    pub split_random: bool,
+    /// probability that a failed elimination is followed by a fresh attempt from the best
+    /// layout with a new random cut (instead of a disrupted layout from the pool)
+    pub recut: f64,
+    /// futility cut-off of the exploration: once `cut_min` eliminations have failed at a
+    /// target, a further attempt is given up after `cut_iter` iterations unless its loss is
+    /// by then below the `cut_q` quantile of the losses those failures ended with (0 = off)
+    /// tighten (compact + squeeze) every feasible layout found by the exploration; with
+    /// `false` the exploration works on the layouts as the eliminations leave them and only
+    /// its final result is tightened
+    pub tighten_explore: bool,
+    pub cut_min: usize,
+    pub cut_iter: usize,
+    pub cut_q: f64,
     pub ex_iters: usize,
     pub ex_strikes: usize,
     pub pool_std: f64,
@@ -63,6 +78,10 @@ pub struct Params {
     pub hop_tau: f64,
     /// number of swaps per hop
     pub hop_swaps: usize,
+    /// how a hop loosens the layout: 0 = a gap at a random position, 1 = uniform dilation
+    pub hop_mode: u8,
+    /// tighten the layouts of the descents that follow a hop (false: only their end points)
+    pub hop_tight: bool,
     pub verbose: u8,
 }
 
@@ -83,6 +102,12 @@ impl Default for Params {
             shrink: 0.001,
             adapt_fails: 0,
             shrink_min: 0.00002,
+            split_random: false,
+            recut: 0.0,
+            tighten_explore: true,
+            cut_min: 0,
+            cut_iter: 50,
+            cut_q: 0.5,
             ex_iters: 200,
             ex_strikes: 3,
             pool_std: 0.25,
@@ -101,6 +126,8 @@ impl Default for Params {
             hop_loosen: 0.03,
             hop_tau: 0.01,
             hop_swaps: 1,
+            hop_mode: 0,
+            hop_tight: true,
             verbose: 1,
         }
     }
@@ -452,6 +479,8 @@ fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: 
     // length of the bin the separator currently works on
     let mut cur_len = best_len;
     let mut pool: Vec<(Layout, f64)> = Vec::new();
+    // the (sorted) losses that the failed eliminations at the current target ended with
+    let mut finals: Vec<f64> = Vec::new();
     // current shrink step
     let mut r = pr.shrink;
     // number of consecutive failures at the current target / since the last improvement that
@@ -466,29 +495,45 @@ fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: 
     let mut desc: Option<(Layout, f64)> = None;
     let max_len = if prob.mode == Mode::Bin { prob.bin_width } else { f64::INFINITY };
     let mut n_hops = (0usize, 0usize);
+    // whether the descent in progress tightens the layouts it finds
+    let mut tight = pr.tighten_explore;
     sep.restore(best);
     let mut next = (cur_len * (1.0 - pr.shrink)).max(lb);
     let mut ev_last = sep.evals();
     if next >= cur_len {
         return (false, ev_last);
     }
-    sep.set_bin_len(b, next, cur_len * 0.5);
+    let split = if pr.split_random { sep.rng.f64() * cur_len } else { cur_len * 0.5 };
+    sep.set_bin_len(b, next, split);
     cur_len = next;
     while !lim.reached(sep.evals()) {
         let it0 = sep.iters;
-        let res = sep.separate(&pr.search, pr.ex_iters, pr.ex_strikes, lim);
+        let futile = if pr.cut_min > 0 && finals.len() >= pr.cut_min {
+            Some((pr.cut_iter, finals[((pr.cut_q * finals.len() as f64) as usize).min(finals.len() - 1)]))
+        } else {
+            None
+        };
+        let n_cut0 = sep.n_cut;
+        let res = sep.separate(&pr.search, pr.ex_iters, pr.ex_strikes, lim, futile);
         if pr.verbose > 2 {
             eprintln!(
-                "[sep  ] {:7.2}s bin {} len {:.4} iters {:5} loss {:.4e}",
+                "[sep  ] {:7.2}s bin {} len {:.4} iters {:5} loss {:.4e} curve {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e}",
                 cx.secs(),
                 b,
                 cur_len,
                 sep.iters - it0,
-                res.loss
+                res.loss,
+                sep.curve[0],
+                sep.curve[1],
+                sep.curve[2],
+                sep.curve[3],
+                sep.curve[4],
+                sep.curve[5],
+                sep.curve[6]
             );
         }
         if res.loss == 0.0 {
-            let (mut lay, len) = tighten(sep, cx, res.lay, b, lb, 2e-5, 1);
+            let (mut lay, len) = if tight { tighten(sep, cx, res.lay, b, lb, 2e-5, 1) } else { (res.lay, cur_len) };
             let len = cur_len.min(len);
             lay.bins[b].len = len;
             if len < best_len {
@@ -510,11 +555,17 @@ fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: 
             if next >= len {
                 return (false, ev_last);
             }
-            sep.set_bin_len(b, next, len * 0.5);
+            let split = if pr.split_random { sep.rng.f64() * len } else { len * 0.5 };
+            sep.set_bin_len(b, next, split);
             cur_len = next;
             desc = Some((lay, len));
             pool.clear();
+            finals.clear();
         } else {
+            if sep.n_cut == n_cut0 {
+                let pos = finals.partition_point(|&l| l < res.loss);
+                finals.insert(pos, res.loss);
+            }
             fails += 1;
             idle_fails += 1;
             if max_fails > 0 && idle_fails >= max_fails {
@@ -522,7 +573,22 @@ fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: 
             }
             if pr.hop_fails > 0 && fails >= pr.hop_fails {
                 // The descent has arrived at a local optimum.  Move there if it is good enough...
-                if let Some((lay, len)) = desc.take() {
+                if let Some((mut lay, mut len)) = desc.take() {
+                    if !tight {
+                        // the descent did not tighten its layouts: do it now for its end point
+                        let (l2, len2) = tighten(sep, cx, lay, b, lb, 2e-5, 1);
+                        lay = l2;
+                        len = len.min(len2);
+                        lay.bins[b].len = len;
+                        if len < best_len {
+                            best_len = len;
+                            best.clone_from(&lay);
+                            cx.log.push((cx.secs(), best_len));
+                            if pr.verbose > 1 {
+                                eprintln!("[expl ] {:7.2}s len {:.4} density {:.3}%", cx.secs(), best_len, 100.0 * density(prob, best));
+                            }
+                        }
+                    }
                     n_hops.0 += 1;
                     if len <= best_len * (1.0 + pr.hop_tau) {
                         n_hops.1 += 1;
@@ -530,17 +596,23 @@ fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: 
                         home_len = len;
                     }
                 }
-                // ...and hop: open a gap at a random position, swap large items, descend again.
+                // ...and hop: loosen the layout, swap large items, descend again.
                 sep.restore(&home);
                 let loose = (home_len * (1.0 + pr.hop_loosen)).min(max_len);
-                let split = sep.rng.f64() * home_len;
-                sep.set_bin_len(b, loose, split);
-                for _ in 0..pr.hop_swaps.max(1) {
+                if pr.hop_mode == 1 {
+                    sep.dilate_bin(b, loose / home_len);
+                } else {
+                    let split = sep.rng.f64() * home_len;
+                    sep.set_bin_len(b, loose, split);
+                }
+                for _ in 0..pr.hop_swaps {
                     disrupt(sep, pr.large_pct, pr.move_covered, pr.swap_cands);
                 }
+                tight = pr.hop_tight;
                 cur_len = loose;
                 fails = 0;
                 pool.clear();
+            finals.clear();
             } else if pr.adapt_fails > 0 && fails >= pr.adapt_fails && r * 0.5 >= pr.shrink_min {
                 // The target is out of reach of the arrangements at hand: ask for less.  A
                 // fresh attempt from the best layout, cut at a random position, with half
@@ -557,10 +629,31 @@ fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: 
                 sep.set_bin_len(b, next, split);
                 cur_len = next;
                 pool.clear();
+            finals.clear();
+            } else if pr.recut > 0.0 && pr.hop_fails == 0 && sep.rng.f64() < pr.recut {
+                // a fresh attempt at the same target from the best layout, cut elsewhere
+                sep.restore(best);
+                let split = sep.rng.f64() * best_len;
+                sep.set_bin_len(b, cur_len, split);
             } else {
                 restart_from_pool(sep, &mut pool, res.lay, res.loss, pr);
             }
         }
+    }
+    if !tight {
+        // the end point of an untightened descent that was cut short by the limit
+        if let Some((lay, len)) = desc.take() {
+            let (mut l2, len2) = tighten(sep, cx, lay, b, lb, 2e-5, 1);
+            let len = len.min(len2);
+            if len < best_len {
+                l2.bins[b].len = len;
+                *best = l2;
+                cx.log.push((cx.secs(), len));
+            }
+        }
+    }
+    if pr.verbose > 1 && pr.cut_min > 0 {
+        eprintln!("[cut  ] {} eliminations given up early", sep.n_cut);
     }
     if pr.verbose > 1 && pr.hop_fails > 0 {
         eprintln!("[hops ] {} local optima visited, {} accepted", n_hops.0, n_hops.1);
@@ -592,7 +685,7 @@ fn compress(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim:
         sep.restore(best);
         let split = sep.rng.f64() * best_len;
         sep.set_bin_len(b, next, split);
-        let res = sep.separate(&pr.cmpr_search, pr.cm_iters, pr.cm_strikes, lim);
+        let res = sep.separate(&pr.cmpr_search, pr.cm_iters, pr.cm_strikes, lim, None);
         if res.loss == 0.0 {
             let (lay, len) = tighten(sep, cx, res.lay, b, lb, 2e-5, 1);
             best_len = next.min(len);
@@ -745,6 +838,13 @@ fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
     if pr.verbose > 0 && n_traj > 1 {
         eprintln!("[traj ] {} trajectories", n_traj);
     }
+    if !pr.tighten_explore {
+        let len0 = best.bins[0].len;
+        let (lay, len) = tighten(&mut sep, &mut cx, best, 0, lb, 2e-5, 1);
+        best = lay;
+        best.bins[0].len = len.min(len0);
+        cx.log.push((cx.secs(), best.bins[0].len));
+    }
     report_phase(&sep, &cx, prob, &best, "expl ");
     compress(&mut sep, &mut cx, 0, &mut best, lim_end, lb);
     finish(&mut sep, &mut cx, 0, best, lb)
@@ -812,7 +912,7 @@ fn try_eliminate(sep: &mut Separator, cx: &mut Ctx, best: &Layout, lim: Limit) -
     sep.restore(&lay);
     let mut pool: Vec<(Layout, f64)> = Vec::new();
     loop {
-        let res = sep.separate(&pr.search, pr.ex_iters, pr.ex_strikes, lim);
+        let res = sep.separate(&pr.search, pr.ex_iters, pr.ex_strikes, lim, None);
         if res.loss == 0.0 {
             return Some(res.lay);
         }
