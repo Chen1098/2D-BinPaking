@@ -326,6 +326,7 @@ pub fn search_placement(
     rcs: &mut [RotCtx],
     current: Option<(usize, f64, f64)>,
     cfg: &SearchCfg,
+    only_bin: Option<usize>,
     rng: &mut Rng,
     evals: &mut u64,
     prof: &mut [f64; 8],
@@ -346,6 +347,9 @@ pub fn search_placement(
         for _ in 0..cfg.n_focus {
             let kk = if nrot > 1 { rng.below(nrot) } else { 0 };
             let rc = &mut rcs[kk];
+            if rc.w > lay.bins[bin].len {
+                continue;
+            }
             let cx = x + rng.f64() * cw;
             let cy = y + rng.f64() * ch;
             let (sx, sy) = lay.clamp_to_bin(prob, rc.os, bin, cx - 0.5 * rc.w, cy - 0.5 * rc.h);
@@ -361,8 +365,15 @@ pub fn search_placement(
     for _ in 0..cfg.n_container {
         let kk = if nrot > 1 { rng.below(nrot) } else { 0 };
         let rc = &rcs[kk];
-        let mut b = if nb > 1 { rng.below(nb) } else { 0 };
+        let mut b = match only_bin {
+            Some(b) => b,
+            None if nb > 1 => rng.below(nb),
+            None => 0,
+        };
         if lay.bins[b].len < rc.w {
+            if only_bin.is_some() {
+                continue;
+            }
             // pick any bin the item fits in
             match (0..nb).find(|&q| lay.bins[q].len >= rc.w) {
                 Some(q) => b = q,

@@ -8,7 +8,7 @@ use std::fmt::Write;
 /// Final polygon of item `i` in container coordinates.
 pub fn placed_polygon(prob: &Problem, lay: &Layout, i: usize) -> Vec<P> {
     let s = &prob.shapes[lay.os[i] as usize];
-    s.poly.iter().map(|q| p(q.x + lay.x[i], q.y + lay.y[i])).collect()
+    s.outline.iter().map(|q| p(q.x + lay.x[i], q.y + lay.y[i])).collect()
 }
 
 pub fn to_json(prob: &Problem, lay: &Layout, extra: &[(&str, String)]) -> String {

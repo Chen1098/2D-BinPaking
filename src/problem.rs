@@ -10,7 +10,10 @@ use std::sync::OnceLock;
 pub struct Shape {
     pub type_id: usize,
     pub angle: f64,
+    /// collision shape (the item outline, inflated by half the minimum separation)
     pub poly: Vec<P>,
+    /// the true item outline in the same frame
+    pub outline: Vec<P>,
     pub pieces: Vec<Vec<P>>,
     pub cpieces: Vec<ConvexPoly>,
     pub w: f64,
@@ -70,6 +73,8 @@ pub struct RawItem {
 
 pub struct RawInstance {
     pub name: String,
+    /// minimum distance between items requested by the instance (0 if absent)
+    pub min_sep: f64,
     pub mode: Mode,
     pub height: f64,
     pub bin_width: f64,
@@ -166,7 +171,8 @@ pub fn parse_json(text: &str, continuous_steps: usize) -> Result<RawInstance, St
         }
         items.push(RawItem { ext_id, demand, poly, angles });
     }
-    Ok(RawInstance { name, mode, height, bin_width, items })
+    let min_sep = v.get("min_item_separation").and_then(|x| x.as_f64()).unwrap_or(0.0);
+    Ok(RawInstance { name, min_sep, mode, height, bin_width, items })
 }
 
 /// Parse the original plain-text format of this repository:
@@ -193,7 +199,7 @@ pub fn parse_legacy(text: &str) -> Result<RawInstance, String> {
         }
         items.push(RawItem { ext_id: i as i64, demand: 1, poly, angles: vec![0.0] });
     }
-    Ok(RawInstance { name: "legacy".into(), mode: Mode::Bin, height: h, bin_width: w, items })
+    Ok(RawInstance { name: "legacy".into(), min_sep: 0.0, mode: Mode::Bin, height: h, bin_width: w, items })
 }
 
 fn same_polygon(a: &[P], b: &[P], tol: f64) -> bool {
@@ -214,7 +220,8 @@ fn same_polygon(a: &[P], b: &[P], tol: f64) -> bool {
 }
 
 impl Problem {
-    pub fn new(raw: RawInstance, res: usize, rot_override: Option<&[f64]>, proxy: bool) -> Result<Problem, String> {
+    /// `min_sep`: minimum distance to keep between any two items (0 = items may touch).
+    pub fn new(raw: RawInstance, res: usize, rot_override: Option<&[f64]>, proxy: bool, min_sep: f64) -> Result<Problem, String> {
         let mut types = Vec::new();
         let mut shapes: Vec<Shape> = Vec::new();
         let mut items = Vec::new();
@@ -227,10 +234,16 @@ impl Problem {
             let angles: &[f64] = rot_override.unwrap_or(&r.angles);
             let mut ids = Vec::new();
             for &ang in angles {
-                let rp = rotate_poly(&orig, ang);
+                let rp0 = rotate_poly(&orig, ang);
+                let rp = if min_sep > 0.0 {
+                    clean_polygon(&inflate(&rp0, 0.5 * min_sep)).ok_or_else(|| format!("item {}: cannot apply the minimum separation", r.ext_id))?
+                } else {
+                    rp0.clone()
+                };
                 let bb = bbox(&rp);
                 let off = p(bb[0], bb[1]);
                 let poly: Vec<P> = rp.iter().map(|q| *q - off).collect();
+                let outline: Vec<P> = rp0.iter().map(|q| *q - off).collect();
                 let (w, h) = (bb[2] - bb[0], bb[3] - bb[1]);
                 if h > raw.height * (1.0 + 1e-12) {
                     continue;
@@ -245,12 +258,13 @@ impl Problem {
                 let cpieces: Vec<ConvexPoly> = pieces.iter().map(|q| ConvexPoly::new(q.clone())).collect();
                 let hull = convex_hull(&poly);
                 let hull_area = signed_area(&hull).abs();
-                let area = signed_area(&poly);
+                let area_c = signed_area(&poly);
+                let area = signed_area(&outline);
                 let pa: f64 = pieces.iter().map(|q| signed_area(q)).sum();
-                if (pa - area).abs() > 1e-7 * area {
+                if (pa - area_c).abs() > 1e-7 * area_c {
                     return Err(format!(
                         "item {}: convex decomposition failed (area {} vs {}); is the polygon simple?",
-                        r.ext_id, pa, area
+                        r.ext_id, pa, area_c
                     ));
                 }
                 ids.push(shapes.len());
@@ -261,6 +275,7 @@ impl Problem {
                     diam: diameter(&poly),
                     poles: poles(&poly, 64),
                     poly,
+                    outline,
                     pieces,
                     cpieces,
                     w,

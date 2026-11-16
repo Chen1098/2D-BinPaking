@@ -352,3 +352,27 @@ pub fn pole_proxy(pa: &[[f64; 3]], ax: f64, ay: f64, pb: &[[f64; 3]], bx: f64, b
     }
     tot * std::f64::consts::PI
 }
+
+/// Offset a counter-clockwise polygon outwards by `d` (mitre joins; very sharp corners get a
+/// square cap instead of a long spike).  Meant for small offsets relative to the features.
+pub fn inflate(poly: &[P], d: f64) -> Vec<P> {
+    let n = poly.len();
+    let mut out = Vec::with_capacity(n + 4);
+    for i in 0..n {
+        let a = poly[(i + n - 1) % n];
+        let b = poly[i];
+        let c = poly[(i + 1) % n];
+        let e1 = (b - a) * (1.0 / norm(b - a));
+        let e2 = (c - b) * (1.0 / norm(c - b));
+        let n1 = p(e1.y, -e1.x);
+        let n2 = p(e2.y, -e2.x);
+        let den = 1.0 + dot(n1, n2);
+        if den > 0.2 {
+            out.push(b + (n1 + n2) * (d / den));
+        } else {
+            out.push(b + n1 * d + e1 * d);
+            out.push(b + n2 * d - e2 * d);
+        }
+    }
+    out
+}

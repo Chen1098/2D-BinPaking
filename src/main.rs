@@ -1,6 +1,6 @@
 use kestrel::layout::verify;
 use kestrel::problem::{parse_json, parse_legacy, Mode, Problem};
-use kestrel::strip::{solve_strip, Params};
+use kestrel::solve::{solve, Params};
 use std::path::Path;
 
 fn usage() -> ! {
@@ -17,7 +17,12 @@ OPTIONS:
   -s, --seed <n>          random seed (default 1)
   -w, --workers <n>       worker threads (default 3)
   -o, --out <dir>         output directory (default ./out)
+      --evals <millions>  deterministic budget in sample evaluations instead of time
+      --mode <strip|bin>  override the problem type given by the instance
+      --bin-width <w>     pack into bins of this width (height = strip height)
       --rotations <list>  override allowed rotations, e.g. 0,90,180,270
+      --min-sep <d>       keep at least distance d between items (default: may touch)
+      --strict            shorthand for a separation of 1e-6 x the largest item dimension
       --res <n>           NFP grid resolution (default 64)
   -q, --quiet"
     );
@@ -34,6 +39,10 @@ fn main() {
     let mut pr = Params::default();
     let mut res = 64usize;
     let mut rots: Option<Vec<f64>> = None;
+    let mut min_sep: Option<f64> = None;
+    let mut rel_sep: Option<f64> = None;
+    let mut mode_override: Option<String> = None;
+    let mut bin_width_override: Option<f64> = None;
     let mut kv: Vec<(String, String)> = Vec::new();
     let cmd = args[1].clone();
     let mut i = 2;
@@ -54,6 +63,11 @@ fn main() {
             "-w" | "--workers" => pr.workers = val().parse().unwrap_or_else(|_| usage()),
             "-o" | "--out" => out_dir = val(),
             "--res" => res = val().parse().unwrap_or_else(|_| usage()),
+            "--min-sep" => min_sep = Some(val().parse().unwrap_or_else(|_| usage())),
+            "--rel-sep" => rel_sep = Some(val().parse().unwrap_or_else(|_| usage())),
+            "--strict" => rel_sep = Some(1e-6),
+            "--mode" => mode_override = Some(val()),
+            "--bin-width" => bin_width_override = Some(val().parse().unwrap_or_else(|_| usage())),
             "--rotations" => rots = Some(val().split(',').filter_map(|t| t.trim().parse().ok()).collect()),
             "-q" | "--quiet" => pr.verbose = 0,
             "-v" => pr.verbose = 2,
@@ -122,11 +136,37 @@ fn main() {
         std::process::exit(1)
     });
     let raw = if input.to_lowercase().ends_with(".json") { parse_json(&text, 4) } else { parse_legacy(&text) };
-    let raw = raw.unwrap_or_else(|e| {
+    let mut raw = raw.unwrap_or_else(|e| {
         eprintln!("parse error: {e}");
         std::process::exit(1)
     });
-    let prob = Problem::new(raw, res, rots.as_deref(), pr.loss_mode == 2).unwrap_or_else(|e| {
+    if let Some(w) = bin_width_override {
+        raw.mode = Mode::Bin;
+        raw.bin_width = w;
+    }
+    match mode_override.as_deref() {
+        Some("strip") => raw.mode = Mode::Strip,
+        Some("bin") => {
+            if !(raw.bin_width > 0.0) {
+                eprintln!("--mode bin needs a bin width (instance `bin` or --bin-width)");
+                std::process::exit(2);
+            }
+            raw.mode = Mode::Bin;
+        }
+        Some(_) => usage(),
+        None => {}
+    }
+    // minimum separation: absolute value, or relative to the largest item dimension
+    let mut sep = min_sep.unwrap_or(raw.min_sep);
+    if let Some(rel) = rel_sep {
+        let mut md: f64 = 0.0;
+        for it in &raw.items {
+            let bb = kestrel::geom::bbox(&it.poly);
+            md = md.max(bb[2] - bb[0]).max(bb[3] - bb[1]);
+        }
+        sep = sep.max(rel * md);
+    }
+    let prob = Problem::new(raw, res, rots.as_deref(), pr.loss_mode == 2, sep).unwrap_or_else(|e| {
         eprintln!("error: {e}");
         std::process::exit(1)
     });
@@ -137,10 +177,6 @@ fn main() {
         }
         "solve" => {}
         _ => usage(),
-    }
-    if prob.mode != Mode::Strip {
-        eprintln!("bin mode not wired up yet");
-        std::process::exit(1);
     }
     let t0 = std::time::Instant::now();
     prob.prewarm(pr.workers.max(1));
@@ -156,12 +192,14 @@ fn main() {
             t0.elapsed().as_secs_f64()
         );
     }
-    let out = solve_strip(&prob, &pr);
+    let out = solve(&prob, &pr);
     let v = verify(&prob, &out.lay);
     let feasible = v.max_overlap <= 10.0 * prob.tol && v.max_outside <= 10.0 * prob.tol;
     std::fs::create_dir_all(&out_dir).ok();
     let base = Path::new(&out_dir).join(&prob.name);
     let extra = [
+        ("mode", format!("{:?}", if prob.mode == Mode::Strip { "strip" } else { "bin" })),
+        ("n_bins", format!("{}", out.n_bins)),
         ("strip_length", format!("{:?}", out.len)),
         ("density", format!("{:?}", out.density)),
         ("feasible", format!("{}", feasible)),
@@ -172,8 +210,9 @@ fn main() {
     let title = format!("{} - length {:.4}, density {:.3}%", prob.name, out.len, 100.0 * out.density);
     std::fs::write(base.with_extension("svg"), kestrel::out::to_svg(&prob, &out.lay, &title)).ok();
     println!(
-        "RESULT name={} len={:.6} density={:.4}% feasible={} max_overlap={:.2e} max_outside={:.2e} evals={} moves={} iters={} time={:.1}s",
+        "RESULT name={} bins={} len={:.6} density={:.4}% feasible={} max_overlap={:.2e} max_outside={:.2e} evals={} moves={} iters={} time={:.1}s",
         prob.name,
+        out.n_bins,
         out.len,
         100.0 * out.density,
         feasible,
