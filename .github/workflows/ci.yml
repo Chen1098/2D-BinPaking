@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Unit and end-to-end tests
+        run: cargo test --release
+      - name: Solve a small instance with a deterministic budget
+        run: cargo run --release -- solve -i data/strip/fu.json --evals 5 --strict -q -o out
+      - name: Check the result with the independent verifier
+        run: python3 tools/verify.py data/strip/fu.json out/fu.json

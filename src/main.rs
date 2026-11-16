@@ -26,7 +26,11 @@ OPTIONS:
       --simplify <ratio>  simplify all collision outlines, growing them by at most this area
                           ratio (default: 0.001 for outlines with more than 64 vertices; 0 = off)
       --res <n>           NFP grid resolution (default 64)
-  -q, --quiet"
+      --set <key>=<val>   override an internal parameter (for experiments; see src/main.rs)
+  -q, --quiet             print only the result line
+  -v, -vv                 print every improvement / every elimination attempt
+
+The result is written to <out>/<name>.json and <out>/<name>.svg."
     );
     std::process::exit(2);
 }
@@ -155,6 +159,12 @@ fn main() {
         eprintln!("parse error: {e}");
         std::process::exit(1)
     });
+    if !input.to_lowercase().ends_with(".json") {
+        // plain-text instances carry no name: the results are named after the input file
+        if let Some(stem) = Path::new(&input).file_stem().and_then(|s| s.to_str()) {
+            raw.name = stem.to_string();
+        }
+    }
     if let Some(w) = bin_width_override {
         raw.mode = Mode::Bin;
         raw.bin_width = w;
