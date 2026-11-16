@@ -71,6 +71,11 @@ fn main() {
     for (k, v) in &kv {
         let f: f64 = v.parse().unwrap_or(f64::NAN);
         match k.as_str() {
+            "loss_mode" => pr.loss_mode = f as u8,
+            "compact" => pr.compact = f != 0.0,
+            "relax" => pr.relax = f as usize,
+            "finisher" => pr.finisher = f as usize,
+            "finish_pd" => pr.finish_pd = f,
             "c0" => pr.loss_c.0 = f,
             "c1" => pr.loss_c.1 = f,
             "c2" => pr.loss_c.2 = f,
@@ -121,7 +126,7 @@ fn main() {
         eprintln!("parse error: {e}");
         std::process::exit(1)
     });
-    let prob = Problem::new(raw, res, rots.as_deref()).unwrap_or_else(|e| {
+    let prob = Problem::new(raw, res, rots.as_deref(), pr.loss_mode == 2).unwrap_or_else(|e| {
         eprintln!("error: {e}");
         std::process::exit(1)
     });

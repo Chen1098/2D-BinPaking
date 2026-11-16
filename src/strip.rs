@@ -3,7 +3,7 @@
 use crate::layout::*;
 use crate::problem::Problem;
 use crate::rng::Rng;
-use crate::search::{search_placement, RotCtx, SearchCfg};
+use crate::search::{refine, search_placement, Cand, RotCtx, SearchCfg};
 use crate::separator::{Limit, Separator};
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,7 @@ pub struct Params {
     pub gls: (f64, f64, f64),
     /// (c0, c1, c2) of the pair loss, see `LossTable`
     pub loss_c: (f64, f64, f64),
+    pub loss_mode: u8,
     pub shrink: f64,
     pub ex_iters: usize,
     pub ex_strikes: usize,
@@ -28,6 +29,14 @@ pub struct Params {
     pub cm_shrink: (f64, f64),
     pub cm_iters: usize,
     pub cm_strikes: usize,
+    /// slide items into exact contact (left, then down) after every successful separation
+    pub compact: bool,
+    /// push-relaxation sweeps tried after every shrink before the stochastic search (0 = off)
+    pub relax: usize,
+    /// push-relaxation sweeps tried on nearly feasible states during separation (0 = off)
+    pub finisher: usize,
+    /// depth limit (relative to the largest item dimension) for the finisher
+    pub finish_pd: f64,
     pub verbose: u8,
 }
 
@@ -44,6 +53,7 @@ impl Default for Params {
             cmpr_search: search,
             gls: (2.0, 1.2, 0.95),
             loss_c: (0.04, 0.5, 2.0),
+            loss_mode: 2,
             shrink: 0.001,
             ex_iters: 200,
             ex_strikes: 3,
@@ -52,6 +62,10 @@ impl Default for Params {
             cm_shrink: (0.0005, 0.00001),
             cm_iters: 100,
             cm_strikes: 5,
+            compact: true,
+            relax: 60,
+            finisher: 0,
+            finish_pd: 0.03,
             verbose: 1,
         }
     }
@@ -109,7 +123,7 @@ pub fn construct(prob: &Problem, lt: &LossTable, rng: &mut Rng) -> Layout {
                     .iter()
                     .map(|&os| RotCtx::new(prob, lt, &lay, os, placed.iter().map(|&j| (j, 1.0)), true))
                     .collect();
-                search_placement(prob, &lay, &mut rcs, None, &cfg, rng, &mut evals)
+                search_placement(prob, &lay, &mut rcs, None, &cfg, rng, &mut evals, &mut [0.0; 8])
             };
             match c {
                 Some(c) if c.e.is_finite() => {
@@ -125,6 +139,67 @@ pub fn construct(prob: &Problem, lt: &LossTable, rng: &mut Rng) -> Layout {
     }
     lay.bins[0].len = lay.used_len(prob, 0);
     lay
+}
+
+/// Exact gravity compaction of a feasible layout: every item (left to right) slides as far
+/// left, then down, as it can without colliding, by coordinate descent on its position with
+/// the exact collision test.  Returns the resulting used length of bin `b`.
+pub fn compact(prob: &Problem, lt: &LossTable, lay: &mut Layout, rng: &mut Rng, sweeps: usize, evals: &mut u64) -> f64 {
+    let n = lay.n();
+    let mut order: Vec<usize> = (0..n).collect();
+    for _ in 0..sweeps {
+        order.sort_by(|&a, &b| lay.x[a].partial_cmp(&lay.x[b]).unwrap().then(a.cmp(&b)));
+        let mut moved = 0.0;
+        for &i in &order {
+            let os = lay.os[i] as usize;
+            let c = {
+                let mut rcs = vec![RotCtx::new(prob, lt, lay, os, (0..n).filter(|&j| j != i).map(|j| (j, 1.0)), true)];
+                let md = rcs[0].w.min(rcs[0].h);
+                let bin = lay.bin_of(lay.x[i]);
+                let e0 = rcs[0].eval(lay.x[i], lay.y[i], f64::INFINITY);
+                if !e0.is_finite() {
+                    continue;
+                }
+                refine(&mut rcs, lay, prob, Cand { k: 0, bin, x: lay.x[i], y: lay.y[i], e: e0 }, 0.02 * md, 1e-7 * md, rng, evals)
+            };
+            moved += (lay.x[i] - c.x).abs() + (lay.y[i] - c.y).abs();
+            lay.x[i] = c.x;
+            lay.y[i] = c.y;
+        }
+        if moved < 1e-7 * prob.max_dim {
+            break;
+        }
+    }
+    lay.used_len(prob, 0)
+}
+
+/// Jam-squeeze a feasible layout: shrink the strip in ever smaller steps, each time letting
+/// the push relaxation absorb the overlaps, until nothing moves any more.
+/// Leaves the separator at the tightest feasible layout found and returns its length.
+pub fn squeeze(sep: &mut Separator, start: &Layout, sweeps: usize, lb: f64) -> (Layout, f64) {
+    let prob = sep.prob;
+    let mut best = start.clone();
+    let mut best_len = best.used_len(prob, 0);
+    best.bins[0].len = best_len;
+    let mut step = 0.002;
+    while step > 2e-6 {
+        let next = (best_len * (1.0 - step)).max(lb);
+        if next >= best_len {
+            break;
+        }
+        sep.restore(&best);
+        // push from the right wall only: nothing is shifted, items are just clamped
+        sep.set_bin_len(0, next, f64::INFINITY);
+        if sep.relax(sweeps, f64::INFINITY) {
+            best = sep.lay.clone();
+            best_len = best.used_len(prob, 0);
+            best.bins[0].len = best_len;
+        } else {
+            step *= 0.5;
+        }
+    }
+    sep.restore(&best);
+    (best, best_len)
 }
 
 /// Swap two large items to escape a local optimum (sparrow's disruption).
@@ -182,7 +257,7 @@ fn disrupt(sep: &mut Separator, large_pct: f64) {
 pub fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
     let t0 = Instant::now();
     let mut rng = Rng::new(pr.seed);
-    let lt0 = LossTable::new(prob, pr.loss_c);
+    let lt0 = LossTable::new(prob, pr.loss_c, 0);
     let init = construct(prob, &lt0, &mut rng);
     let mut log: Vec<(f64, f64)> = Vec::new();
     let lb = len_lower_bound(prob);
@@ -192,7 +267,9 @@ pub fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
     if pr.verbose > 0 {
         eprintln!("[init ] {:7.2}s len {:.4} density {:.3}%", t0.elapsed().as_secs_f64(), best_len, 100.0 * density(prob, best_len));
     }
-    let mut sep = Separator::new(prob, init, pr.workers, pr.loss_c, pr.gls, rng.fork());
+    let mut sep = Separator::new(prob, init, pr.workers, pr.loss_c, pr.loss_mode, pr.gls, rng.fork());
+    sep.finisher = pr.finisher;
+    sep.finish_pd = pr.finish_pd * prob.max_dim;
     let far = t0 + Duration::from_secs(86_400 * 365);
     let (lim_explore, lim_end) = if pr.max_evals > 0 {
         (Limit { t: far, evals: (pr.max_evals as f64 * pr.explore_frac) as u64 }, Limit { t: far, evals: pr.max_evals })
@@ -206,6 +283,7 @@ pub fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
     // ---------------- exploration ----------------
     let mut cur_len = best_len;
     let mut pool: Vec<(Layout, f64)> = Vec::new();
+    let mut cmp_evals = 0u64;
     // first shrink
     let mut next = (cur_len * (1.0 - pr.shrink)).max(lb);
     if next < cur_len {
@@ -240,6 +318,22 @@ pub fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
             );
         }
         if res.loss == 0.0 {
+            let mut res = res;
+            if pr.compact {
+                let l2 = compact(prob, &sep.lt, &mut res.lay, &mut sep.rng, 2, &mut cmp_evals);
+                if l2 < cur_len {
+                    cur_len = l2;
+                    res.lay.bins[0].len = l2;
+                }
+                sep.restore(&res.lay);
+            }
+            if pr.relax > 0 {
+                let (l, len) = squeeze(&mut sep, &res.lay, pr.relax, lb);
+                if len < cur_len {
+                    cur_len = len;
+                    res.lay = l;
+                }
+            }
             if cur_len < best_len {
                 best_len = cur_len;
                 best = res.lay.clone();
@@ -276,6 +370,16 @@ pub fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
         );
     }
 
+    if pr.verbose > 1 {
+        eprintln!("[fin  ] finisher tried {} succeeded {}", sep.n_finish_try, sep.n_finish_ok);
+        let p = sep.prof();
+        let tot: f64 = p.iter().sum();
+        eprintln!(
+            "[prof ] worker-seconds {:.1}: ctx {:.1}% focus {:.1}% container {:.1}% pre-refine {:.1}% final-refine {:.1}% update {:.1}% sync {:.1}%",
+            tot, 100.0 * p[0] / tot, 100.0 * p[1] / tot, 100.0 * p[2] / tot, 100.0 * p[3] / tot, 100.0 * p[4] / tot, 100.0 * p[5] / tot, 100.0 * p[6] / tot
+        );
+    }
+
     // ---------------- compression ----------------
     let tc0 = Instant::now();
     let ev0 = sep.evals();
@@ -298,9 +402,30 @@ pub fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
         sep.set_bin_len(0, next, split);
         let res = sep.separate(&pr.cmpr_search, pr.cm_iters, pr.cm_strikes, lim_end);
         if res.loss == 0.0 {
+            let mut res = res;
             best_len = next;
+            if pr.compact {
+                let l2 = compact(prob, &sep.lt, &mut res.lay, &mut sep.rng, 2, &mut cmp_evals);
+                if l2 < best_len {
+                    best_len = l2;
+                    res.lay.bins[0].len = l2;
+                }
+            }
+            if pr.relax > 0 {
+                let (l, len) = squeeze(&mut sep, &res.lay, pr.relax, lb);
+                if len < best_len {
+                    best_len = len;
+                    res.lay = l;
+                }
+            }
             best = res.lay;
             log.push((t0.elapsed().as_secs_f64(), best_len));
+        }
+    }
+    if pr.compact {
+        let l2 = compact(prob, &sep.lt, &mut best, &mut sep.rng, 20, &mut cmp_evals);
+        if l2 < best_len {
+            best.bins[0].len = l2;
         }
     }
     // tighten the strip to the items

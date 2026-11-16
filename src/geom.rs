@@ -262,3 +262,93 @@ pub fn point_in_poly(q: P, poly: &[P]) -> bool {
     }
     inside
 }
+
+/// Greedy set of inscribed circles ("poles of inaccessibility"): each new circle is the largest
+/// one that fits inside the polygon without overlapping the previous ones.
+/// Stops at `max_n` circles, or earlier once the covered area ratio is high enough
+/// (>= 16 circles and 80%, >= 8 circles and 90%), mirroring jagua-rs' surrogate generation.
+pub fn poles(poly: &[P], max_n: usize) -> Vec<[f64; 3]> {
+    let n = poly.len();
+    let bb = bbox(poly);
+    let area = signed_area(poly).abs();
+    let clearance = |q: P, ps: &[[f64; 3]]| -> f64 {
+        if !point_in_poly(q, poly) {
+            return -1.0;
+        }
+        let mut d2 = f64::INFINITY;
+        for i in 0..n {
+            d2 = d2.min(dist2_point_seg(q, poly[i], poly[(i + 1) % n]));
+        }
+        let mut c = d2.sqrt();
+        for c0 in ps {
+            c = c.min(((q.x - c0[0]).powi(2) + (q.y - c0[1]).powi(2)).sqrt() - c0[2]);
+        }
+        c
+    };
+    let mut out: Vec<[f64; 3]> = Vec::new();
+    let mut covered = 0.0;
+    let g = 48usize;
+    let (w, h) = (bb[2] - bb[0], bb[3] - bb[1]);
+    while out.len() < max_n {
+        let mut best = (-1.0f64, p(0.0, 0.0));
+        for iy in 0..g {
+            for ix in 0..g {
+                let q = p(bb[0] + (ix as f64 + 0.5) * w / g as f64, bb[1] + (iy as f64 + 0.5) * h / g as f64);
+                let c = clearance(q, &out);
+                if c > best.0 {
+                    best = (c, q);
+                }
+            }
+        }
+        if best.0 <= 0.0 {
+            break;
+        }
+        // pattern-search refinement
+        let mut step = w.max(h) / g as f64;
+        let (mut c, mut q) = best;
+        while step > 1e-6 * w.max(h) {
+            let mut improved = false;
+            for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (1.0, 1.0), (-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0)] {
+                let q2 = p(q.x + dx * step, q.y + dy * step);
+                let c2 = clearance(q2, &out);
+                if c2 > c {
+                    c = c2;
+                    q = q2;
+                    improved = true;
+                }
+            }
+            if !improved {
+                step *= 0.5;
+            }
+        }
+        if c <= 1e-4 * w.min(h) {
+            break;
+        }
+        out.push([q.x, q.y, c]);
+        covered += std::f64::consts::PI * c * c;
+        let k = out.len();
+        let ratio = covered / area;
+        if (k >= 16 && ratio >= 0.8) || (k >= 8 && ratio >= 0.9) {
+            break;
+        }
+    }
+    out
+}
+
+/// sparrow's overlap proxy between two sets of circles (pole lists translated by a and b).
+#[inline]
+pub fn pole_proxy(pa: &[[f64; 3]], ax: f64, ay: f64, pb: &[[f64; 3]], bx: f64, by: f64, eps: f64) -> f64 {
+    let mut tot = 0.0;
+    let e2 = eps * eps;
+    for a in pa {
+        let (x1, y1, r1) = (a[0] + ax, a[1] + ay, a[2]);
+        for b in pb {
+            let dx = x1 - (b[0] + bx);
+            let dy = y1 - (b[1] + by);
+            let pd = r1 + b[2] - (dx * dx + dy * dy).sqrt();
+            let dec = if pd >= eps { pd } else { e2 / (2.0 * eps - pd) };
+            tot += dec * r1.min(b[2]);
+        }
+    }
+    tot * std::f64::consts::PI
+}

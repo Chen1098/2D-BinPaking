@@ -70,25 +70,37 @@ impl Layout {
 pub struct LossTable {
     ns: usize,
     k: Vec<[f64; 3]>,
+    /// 0: depth based loss, 1: pole proxy evaluated directly (reference, slow),
+    /// 2: pole proxy interpolated from the precomputed field (fast)
+    pub mode: u8,
+    /// per shape pair: (epsilon, lambda) of the pole proxy
+    pp: Vec<[f64; 2]>,
 }
 
 impl LossTable {
-    pub fn new(prob: &Problem, c: (f64, f64, f64)) -> Self {
+    pub fn new(prob: &Problem, c: (f64, f64, f64), mode: u8) -> Self {
         let ns = prob.n_shapes();
         let mut k = vec![[0.0; 3]; ns * ns];
+        let mut pp = vec![[0.0; 2]; ns * ns];
         for a in 0..ns {
             for b in 0..ns {
                 let s2 = prob.shapes[a].size * prob.shapes[b].size;
                 let s = s2.sqrt();
                 k[a * ns + b] = [c.2 * s2, c.1 * s2 * s, c.0 * c.0 * s2 * s2];
+                pp[a * ns + b] = [0.01 * prob.shapes[a].diam.max(prob.shapes[b].diam), s];
             }
         }
-        LossTable { ns, k }
+        LossTable { ns, k, mode, pp }
     }
 
     #[inline(always)]
     pub fn get(&self, a: usize, b: usize) -> [f64; 3] {
         unsafe { *self.k.get_unchecked(a * self.ns + b) }
+    }
+
+    #[inline(always)]
+    pub fn get_pp(&self, a: usize, b: usize) -> [f64; 2] {
+        unsafe { *self.pp.get_unchecked(a * self.ns + b) }
     }
 
     #[inline(always)]
@@ -102,9 +114,23 @@ impl LossTable {
 pub fn pair_loss(prob: &Problem, lt: &LossTable, lay: &Layout, i: usize, j: usize) -> f64 {
     let (si, sj) = (lay.os[i] as usize, lay.os[j] as usize);
     let (f, sg) = prob.pair(sj, si);
+    if lt.mode == 2 {
+        let a = f.proxy(sg * (lay.x[i] - lay.x[j]), sg * (lay.y[i] - lay.y[j]));
+        if a < 0.0 {
+            return 0.0;
+        }
+        let e = lt.get_pp(si, sj);
+        return (a + e[0] * e[0]).sqrt() * e[1];
+    }
     let pd = f.pd(sg * (lay.x[i] - lay.x[j]), sg * (lay.y[i] - lay.y[j]));
     if pd > 0.0 {
-        lt.loss(si, sj, pd)
+        if lt.mode == 1 {
+            let e = lt.get_pp(si, sj);
+            let a = crate::geom::pole_proxy(&prob.shapes[si].poles, lay.x[i], lay.y[i], &prob.shapes[sj].poles, lay.x[j], lay.y[j], e[0]);
+            (a + e[0] * e[0]).sqrt() * e[1]
+        } else {
+            lt.loss(si, sj, pd)
+        }
     } else {
         0.0
     }

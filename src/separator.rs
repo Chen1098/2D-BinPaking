@@ -18,14 +18,18 @@ pub struct Worker {
     pub rng: Rng,
     pub evals: u64,
     pub moves: u64,
+    /// profile: ctx build, focus, container, pre-refine, final refine, loss update, sync
+    pub prof: [f64; 8],
     order: Vec<usize>,
 }
 
 impl Worker {
     fn load(&mut self, lay: &Layout, loss: &[f64]) {
+        let t = Instant::now();
         self.lay.clone_from(lay);
         self.loss.clear();
         self.loss.extend_from_slice(loss);
+        self.prof[6] += t.elapsed().as_secs_f64();
     }
 
     /// Give every colliding item (in random order) the chance to move to a better placement.
@@ -51,6 +55,7 @@ impl Worker {
         let ty = &prob.types[prob.items[i]];
         let cur_os = self.lay.os[i] as usize;
         let k0 = ty.shapes.iter().position(|&s| s == cur_os).unwrap_or(0);
+        let t0 = Instant::now();
         let c = {
             let lay = &self.lay;
             let mut rcs: Vec<RotCtx> = ty
@@ -58,8 +63,10 @@ impl Worker {
                 .iter()
                 .map(|&os| RotCtx::new(prob, lt, lay, os, (0..n).filter(|&j| j != i).map(|j| (j, wt[i * n + j])), false))
                 .collect();
-            search_placement(prob, lay, &mut rcs, Some((k0, lay.x[i], lay.y[i])), cfg, &mut self.rng, &mut self.evals)
+            self.prof[0] += t0.elapsed().as_secs_f64();
+            search_placement(prob, lay, &mut rcs, Some((k0, lay.x[i], lay.y[i])), cfg, &mut self.rng, &mut self.evals, &mut self.prof)
         };
+        let t1 = Instant::now();
         if let Some(c) = c {
             self.lay.x[i] = c.x;
             self.lay.y[i] = c.y;
@@ -67,6 +74,7 @@ impl Worker {
             recompute_item(&mut self.loss, prob, lt, &self.lay, i);
             self.moves += 1;
         }
+        self.prof[5] += t1.elapsed().as_secs_f64();
     }
 }
 
@@ -80,6 +88,14 @@ pub struct Separator<'a> {
     pool: Option<rayon::ThreadPool>,
     pub gls: (f64, f64, f64),
     pub iters: u64,
+    /// push-relaxation sweeps tried on promising (nearly feasible) states; 0 = off
+    pub finisher: usize,
+    /// only states whose deepest overlap is below this depth are worth finishing
+    pub finish_pd: f64,
+    /// work done outside sample evaluations (relaxation queries), in query units
+    pub aux: u64,
+    pub n_finish_try: u64,
+    pub n_finish_ok: u64,
 }
 
 pub struct SepResult {
@@ -102,21 +118,32 @@ impl Limit {
 }
 
 impl<'a> Separator<'a> {
-    pub fn new(prob: &'a Problem, lay: Layout, n_workers: usize, loss_c: (f64, f64, f64), gls: (f64, f64, f64), mut rng: Rng) -> Self {
-        let lt = LossTable::new(prob, loss_c);
+    pub fn new(prob: &'a Problem, lay: Layout, n_workers: usize, loss_c: (f64, f64, f64), loss_mode: u8, gls: (f64, f64, f64), mut rng: Rng) -> Self {
+        let lt = LossTable::new(prob, loss_c, loss_mode);
         let tr = Tracker::new(prob, &lt, &lay);
         let workers = (0..n_workers.max(1))
-            .map(|_| Worker { lay: lay.clone(), loss: tr.loss.clone(), rng: rng.fork(), evals: 0, moves: 0, order: Vec::new() })
+            .map(|_| Worker { lay: lay.clone(), loss: tr.loss.clone(), rng: rng.fork(), evals: 0, moves: 0, prof: [0.0; 8], order: Vec::new() })
             .collect();
         let pool = if n_workers > 1 { rayon::ThreadPoolBuilder::new().num_threads(n_workers).build().ok() } else { None };
-        Separator { prob, lt, lay, tr, workers, rng, pool, gls, iters: 0 }
+        Separator { prob, lt, lay, tr, workers, rng, pool, gls, iters: 0, finisher: 0, finish_pd: 0.0, aux: 0, n_finish_try: 0, n_finish_ok: 0 }
     }
 
+    /// Work counter used for budgets: sample evaluations plus relaxation work
+    /// (five field queries of the relaxation count as one sample evaluation).
     pub fn evals(&self) -> u64 {
-        self.workers.iter().map(|w| w.evals).sum()
+        self.workers.iter().map(|w| w.evals).sum::<u64>() + self.aux / 5
     }
     pub fn moves(&self) -> u64 {
         self.workers.iter().map(|w| w.moves).sum()
+    }
+    pub fn prof(&self) -> [f64; 8] {
+        let mut p = [0.0; 8];
+        for w in &self.workers {
+            for k in 0..8 {
+                p[k] += w.prof[k];
+            }
+        }
+        p
     }
 
     /// Replace the layout; losses are recomputed and the weights reset.
@@ -156,6 +183,66 @@ impl<'a> Separator<'a> {
         }
         self.tr.recompute_all(self.prob, &self.lt, &self.lay);
         self.tr.reset_weights();
+    }
+
+    /// Push relaxation ("squeeze"): every colliding pair is pushed apart along its exact
+    /// penetration direction (half the depth each), Gauss-Seidel style, with positions
+    /// clamped to the container.  Pressure propagates through contact chains, so small
+    /// overlaps are absorbed by slack anywhere in the layout without any sampling.
+    /// Returns true when the layout became collision free.
+    pub fn relax(&mut self, sweeps: usize, max_pd_start: f64) -> bool {
+        let prob = self.prob;
+        let n = self.lay.n();
+        let tol = prob.tol;
+        let mut order: Vec<usize> = (0..n).collect();
+        let mut ok = false;
+        for sweep in 0..sweeps {
+            // alternate the sweep direction so pushes travel both ways
+            order.sort_by(|&a, &b| self.lay.x[a].partial_cmp(&self.lay.x[b]).unwrap().then(a.cmp(&b)));
+            if sweep % 2 == 0 {
+                order.reverse();
+            }
+            let mut any = false;
+            for a in 0..n {
+                let i = order[a];
+                for &j in order.iter().skip(a + 1) {
+                    let (si, sj) = (self.lay.os[i] as usize, self.lay.os[j] as usize);
+                    let (shi, shj) = (&prob.shapes[si], &prob.shapes[sj]);
+                    let (xi, yi, xj, yj) = (self.lay.x[i], self.lay.y[i], self.lay.x[j], self.lay.y[j]);
+                    if xj >= xi + shi.w || xj + shj.w <= xi || yj >= yi + shi.h || yj + shj.h <= yi {
+                        continue;
+                    }
+                    let (f, sg) = prob.pair(sj, si);
+                    let (pd, ux, uy) = f.pd_dir(sg * (xi - xj), sg * (yi - yj));
+                    self.aux += 1;
+                    if pd <= 0.0 {
+                        continue;
+                    }
+                    if sweep == 0 && pd > max_pd_start {
+                        // too deep to be absorbed by pushing; not worth trying
+                        self.tr.recompute_all(prob, &self.lt, &self.lay);
+                        return false;
+                    }
+                    any = true;
+                    let m = 0.5 * (pd + 2.0 * tol);
+                    let bi = self.lay.bin_of(xi);
+                    let bj = self.lay.bin_of(xj);
+                    let (nxi, nyi) = self.lay.clamp_to_bin(prob, si, bi, xi + sg * ux * m, yi + sg * uy * m);
+                    let (nxj, nyj) = self.lay.clamp_to_bin(prob, sj, bj, xj - sg * ux * m, yj - sg * uy * m);
+                    self.lay.x[i] = nxi;
+                    self.lay.y[i] = nyi;
+                    self.lay.x[j] = nxj;
+                    self.lay.y[j] = nyj;
+                }
+            }
+            self.aux += (n * n / 64) as u64;
+            if !any {
+                ok = true;
+                break;
+            }
+        }
+        self.tr.recompute_all(prob, &self.lt, &self.lay);
+        ok && self.tr.total_loss() == 0.0
     }
 
     fn move_items_multi(&mut self, cfg: &SearchCfg) {
@@ -214,6 +301,20 @@ impl<'a> Separator<'a> {
                     min_loss = loss;
                     min_lay.clone_from(&self.lay);
                     min_mat.copy_from_slice(&self.tr.loss);
+                    if self.finisher > 0 {
+                        // a new best state: if only shallow overlaps remain, try to push them
+                        // into whatever slack is left
+                        self.n_finish_try += 1;
+                        if self.relax(self.finisher, self.finish_pd) {
+                            self.n_finish_ok += 1;
+                            min_loss = 0.0;
+                            min_lay.clone_from(&self.lay);
+                            min_mat.copy_from_slice(&self.tr.loss);
+                            break 'outer;
+                        }
+                        self.lay.clone_from(&min_lay);
+                        self.tr.loss.copy_from_slice(&min_mat);
+                    }
                 } else {
                     no_imp += 1;
                 }

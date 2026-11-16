@@ -2,7 +2,7 @@
 //! collision loss, evaluated with the exact NFP fields.
 
 use crate::layout::{Layout, LossTable};
-use crate::nfp::Field;
+use crate::nfp::{Field, Grid, Kind};
 use crate::problem::Problem;
 use crate::rng::Rng;
 
@@ -19,6 +19,15 @@ pub struct SearchCfg {
 
 #[derive(Clone, Copy)]
 struct Nb<'a> {
+    /// grid coordinates of a position: fx = ax * x + bx, fy = ay * y + by
+    ax: f64,
+    bx: f64,
+    ay: f64,
+    by: f64,
+    kind: *const u8,
+    nx: usize,
+    ny: usize,
+    grid: Option<&'a Grid>,
     f: &'a Field,
     sg: f64,
     px: f64,
@@ -27,7 +36,13 @@ struct Nb<'a> {
     k2: f64,
     k1: f64,
     k0: f64,
+    poles: &'a [[f64; 3]],
+    pe: f64,
+    pl: f64,
 }
+
+unsafe impl<'a> Send for Nb<'a> {}
+unsafe impl<'a> Sync for Nb<'a> {}
 
 /// Everything needed to evaluate placements of one item in one orientation.
 pub struct RotCtx<'a> {
@@ -47,6 +62,8 @@ pub struct RotCtx<'a> {
     lbf: bool,
     cxo: f64,
     cyo: f64,
+    mode: u8,
+    poles: &'a [[f64; 3]],
 }
 
 impl<'a> RotCtx<'a> {
@@ -70,6 +87,8 @@ impl<'a> RotCtx<'a> {
             lbf,
             cxo: s.centroid.x,
             cyo: s.centroid.y,
+            mode: lt.mode,
+            poles: &s.poles,
         };
         for (j, w) in others {
             let sj = lay.os[j] as usize;
@@ -86,7 +105,21 @@ impl<'a> RotCtx<'a> {
             c.hix.push(hx);
             c.loy.push(ly);
             c.hiy.push(hy);
-            c.nb.push(Nb { f, sg, px, py, w, k2: k[0], k1: k[1], k0: k[2] });
+            let (grid, kind, nx, ny, ax, bx, ay, by) = match &f.kind {
+                Kind::Grid(g) => (
+                    Some(&**g),
+                    g.kind.as_ptr(),
+                    g.nx,
+                    g.ny,
+                    sg * g.inv_h,
+                    (-sg * px - g.ox) * g.inv_h,
+                    sg * g.inv_h,
+                    (-sg * py - g.oy) * g.inv_h,
+                ),
+                _ => (None, std::ptr::null(), 1, 1, 0.0, 0.0, 0.0, 0.0),
+            };
+            let e = lt.get_pp(os, sj);
+            c.nb.push(Nb { ax, bx, ay, by, kind, nx, ny, grid, f, sg, px, py, w, k2: k[0], k1: k[1], k0: k[2], poles: &prob.shapes[sj].poles, pe: e[0], pl: e[1] });
         }
         c
     }
@@ -96,8 +129,32 @@ impl<'a> RotCtx<'a> {
         unsafe {
             if x > *self.lox.get_unchecked(j) && x < *self.hix.get_unchecked(j) && y > *self.loy.get_unchecked(j) && y < *self.hiy.get_unchecked(j) {
                 let nb = self.nb.get_unchecked(j);
-                let pd = nb.f.pd(nb.sg * (x - nb.px), nb.sg * (y - nb.py));
+                let pd = if let Some(g) = nb.grid {
+                    let fx = nb.ax * x + nb.bx;
+                    let fy = nb.ay * y + nb.by;
+                    let ix = (fx as usize).min(nb.nx - 1);
+                    let iy = (fy as usize).min(nb.ny - 1);
+                    let c = iy * nb.nx + ix;
+                    let k = *nb.kind.add(c);
+                    if k == 0 {
+                        return 0.0;
+                    }
+                    if self.mode == 2 {
+                        let a = g.proxy_cell(c, k, ix, iy, fx, fy, nb.sg * (x - nb.px), nb.sg * (y - nb.py), nb.f.eps);
+                        if a < 0.0 {
+                            return 0.0;
+                        }
+                        return nb.w * (a + nb.pe * nb.pe).sqrt() * nb.pl;
+                    }
+                    g.pd_cell(c, k, ix, iy, fx, fy, nb.sg * (x - nb.px), nb.sg * (y - nb.py), nb.f.eps)
+                } else {
+                    nb.f.pd(nb.sg * (x - nb.px), nb.sg * (y - nb.py))
+                };
                 if pd > 0.0 {
+                    if self.mode == 1 {
+                        let a = crate::geom::pole_proxy(self.poles, x, y, nb.poles, nb.px, nb.py, nb.pe);
+                        return nb.w * (a + nb.pe * nb.pe).sqrt() * nb.pl;
+                    }
                     return nb.w * ((nb.k2 * pd + nb.k1) * pd + nb.k0).sqrt();
                 }
             }
@@ -216,7 +273,7 @@ impl BestSamples {
 
 /// Adaptive coordinate descent (step grows on success, halves on failure, random axis among
 /// horizontal / vertical / both diagonals), after Loshchilov et al. and sparrow.
-fn refine(rcs: &mut [RotCtx], lay: &Layout, prob: &Problem, start: Cand, step0: f64, step_min: f64, rng: &mut Rng, evals: &mut u64) -> Cand {
+pub fn refine(rcs: &mut [RotCtx], lay: &Layout, prob: &Problem, start: Cand, step0: f64, step_min: f64, rng: &mut Rng, evals: &mut u64) -> Cand {
     let mut cur = start;
     let rc = &mut rcs[cur.k];
     let (mut sx, mut sy) = (step0, step0);
@@ -271,7 +328,9 @@ pub fn search_placement(
     cfg: &SearchCfg,
     rng: &mut Rng,
     evals: &mut u64,
+    prof: &mut [f64; 8],
 ) -> Option<Cand> {
+    let tp0 = std::time::Instant::now();
     let nrot = rcs.len();
     let mut best = BestSamples { cap: cfg.n_descents.max(1), v: Vec::with_capacity(cfg.n_descents + 1) };
     let min_dim = rcs.iter().map(|r| r.w.min(r.h)).fold(f64::INFINITY, f64::min);
@@ -286,15 +345,17 @@ pub fn search_placement(
         let (cw, ch) = (rcs[k].w, rcs[k].h);
         for _ in 0..cfg.n_focus {
             let kk = if nrot > 1 { rng.below(nrot) } else { 0 };
-            let rc = &rcs[kk];
+            let rc = &mut rcs[kk];
             let cx = x + rng.f64() * cw;
             let cy = y + rng.f64() * ch;
             let (sx, sy) = lay.clamp_to_bin(prob, rc.os, bin, cx - 0.5 * rc.w, cy - 0.5 * rc.h);
-            let e = rc.eval(sx, sy, best.bound());
+            let e = rc.eval_local(sx, sy, best.bound(), cw.max(ch));
             *evals += 1;
             best.report(Cand { k: kk, bin, x: sx, y: sy, e }, thr);
         }
     }
+    let tp1 = std::time::Instant::now();
+    prof[1] += (tp1 - tp0).as_secs_f64();
     // container-wide samples
     let nb = lay.bins.len();
     for _ in 0..cfg.n_container {
@@ -315,6 +376,8 @@ pub fn search_placement(
         *evals += 1;
         best.report(Cand { k: kk, bin: b, x: sx, y: sy, e }, thr);
     }
+    let tp2 = std::time::Instant::now();
+    prof[2] += (tp2 - tp1).as_secs_f64();
     // refine the most promising samples, then polish the winner
     let starts: Vec<Cand> = best.v.clone();
     for s in starts {
@@ -322,10 +385,14 @@ pub fn search_placement(
         let r = refine(rcs, lay, prob, s, md * cfg.cd_pre.0, md * cfg.cd_pre.1, rng, evals);
         best.report(r, thr);
     }
+    let tp3 = std::time::Instant::now();
+    prof[3] += (tp3 - tp2).as_secs_f64();
     let b0 = *best.v.first()?;
     if !b0.e.is_finite() {
         return None;
     }
     let md = rcs[b0.k].w.min(rcs[b0.k].h);
-    Some(refine(rcs, lay, prob, b0, md * cfg.cd_fin.0, md * cfg.cd_fin.1, rng, evals))
+    let r = refine(rcs, lay, prob, b0, md * cfg.cd_fin.0, md * cfg.cd_fin.1, rng, evals);
+    prof[4] += tp3.elapsed().as_secs_f64();
+    Some(r)
 }

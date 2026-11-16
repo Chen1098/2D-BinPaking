@@ -2,7 +2,7 @@
 
 use crate::decomp::convex_decompose;
 use crate::geom::*;
-use crate::nfp::{build_field, ConvexPoly, Field};
+use crate::nfp::{build_field, ConvexPoly, Field, ProxySpec};
 use serde_json::Value;
 use std::sync::OnceLock;
 
@@ -23,6 +23,8 @@ pub struct Shape {
     pub size: f64,
     pub hull_area: f64,
     pub diam: f64,
+    /// inscribed circles (x, y, r), used by the optional pole-proxy loss
+    pub poles: Vec<[f64; 3]>,
 }
 
 pub struct ItemType {
@@ -52,6 +54,8 @@ pub struct Problem {
     pub items: Vec<usize>,
     pub tol: f64,
     pub res: usize,
+    /// build overlap-proxy fields (needed by the proxy-field loss)
+    pub proxy: bool,
     pub total_area: f64,
     pub max_dim: f64,
     fields: Vec<OnceLock<Field>>,
@@ -210,7 +214,7 @@ fn same_polygon(a: &[P], b: &[P], tol: f64) -> bool {
 }
 
 impl Problem {
-    pub fn new(raw: RawInstance, res: usize, rot_override: Option<&[f64]>) -> Result<Problem, String> {
+    pub fn new(raw: RawInstance, res: usize, rot_override: Option<&[f64]>, proxy: bool) -> Result<Problem, String> {
         let mut types = Vec::new();
         let mut shapes: Vec<Shape> = Vec::new();
         let mut items = Vec::new();
@@ -255,6 +259,7 @@ impl Problem {
                     angle: ang,
                     centroid: centroid(&poly),
                     diam: diameter(&poly),
+                    poles: poles(&poly, 64),
                     poly,
                     pieces,
                     cpieces,
@@ -294,6 +299,7 @@ impl Problem {
             items,
             tol: 1e-9 * scale,
             res,
+            proxy,
             total_area,
             max_dim,
             fields,
@@ -316,7 +322,11 @@ impl Problem {
     #[inline]
     pub fn field(&self, a: usize, b: usize) -> &Field {
         let i = self.fidx(a, b);
-        self.fields[i].get_or_init(|| build_field(&self.shapes[a].pieces, &self.shapes[b].pieces, self.res, self.tol))
+        self.fields[i].get_or_init(|| {
+            let (sa, sb) = (&self.shapes[a], &self.shapes[b]);
+            let px = if self.proxy { Some(ProxySpec { pa: &sa.poles, pb: &sb.poles, eps: 0.01 * sa.diam.max(sb.diam) }) } else { None };
+            build_field(&sa.pieces, &sb.pieces, self.res, self.tol, px)
+        })
     }
 
     /// Field and sign for a fixed shape `sf` and a moving shape `sm`:
