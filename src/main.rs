@@ -103,6 +103,7 @@ fn main() {
             "compact" => pr.compact = f != 0.0,
             "relax" => pr.relax = f as usize,
             "move_covered" => pr.move_covered = f != 0.0,
+            "restart_fails" => pr.restart_fails = f as usize,
             "finisher" => pr.finisher = f as usize,
             "finish_pd" => pr.finish_pd = f,
             "c0" => pr.loss_c.0 = f,

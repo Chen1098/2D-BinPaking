@@ -132,3 +132,18 @@ fn bin_mode_reaches_the_area_bound() {
     assert!(v.max_overlap <= 10.0 * prob.tol && v.max_outside <= 10.0 * prob.tol);
     assert_eq!(out.n_bins, 4, "perfect packing into 4 bins exists");
 }
+
+#[test]
+fn restarts_keep_the_best_trajectory() {
+    let prob = problem(true, 0.0);
+    // restart after two failed eliminations in a row: several trajectories within the budget
+    let pr = Params { workers: 2, max_evals: 4_000_000, restart_fails: 2, verbose: 0, ..Params::default() };
+    let a = solve(&prob, &pr);
+    let v = verify(&prob, &a.lay);
+    assert!(v.max_overlap <= 10.0 * prob.tol && v.max_outside <= 10.0 * prob.tol);
+    assert!(a.density > 0.70, "density {}", a.density);
+    // the reported history only ever improves
+    assert!(a.log.windows(2).all(|w| w[1].1 <= w[0].1), "history must be monotone");
+    let b = solve(&prob, &pr);
+    assert_eq!(a.len, b.len, "same seed and budget must give the same layout");
+}

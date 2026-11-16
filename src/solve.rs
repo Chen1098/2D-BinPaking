@@ -41,6 +41,10 @@ pub struct Params {
     pub finish_pd: f64,
     /// when two large items are swapped, items covered by them move along
     pub move_covered: bool,
+    /// restarts of the strip exploration: a trajectory whose eliminations failed this many
+    /// times in a row is abandoned and a new one starts from a fresh construction, as long
+    /// as the remaining budget allows it to get as far as the best one did (0 = never)
+    pub restart_fails: usize,
     pub verbose: u8,
 }
 
@@ -71,6 +75,7 @@ impl Default for Params {
             finisher: 30,
             finish_pd: 0.01,
             move_covered: true,
+            restart_fails: 0,
             verbose: 1,
         }
     }
@@ -117,14 +122,17 @@ fn bin_pitch(prob: &Problem) -> f64 {
 
 /// Bottom-left-fill style constructive heuristic (largest items first).  In bin mode the
 /// bins are filled first-fit and a new bin is opened when an item fits nowhere.
-pub fn construct(prob: &Problem, lt: &LossTable, rng: &mut Rng) -> Layout {
+pub fn construct(prob: &Problem, lt: &LossTable, rng: &mut Rng, jitter: f64) -> Layout {
     let n = prob.items.len();
     let mut order: Vec<usize> = (0..n).collect();
-    let key = |i: usize| {
-        let s = &prob.shapes[prob.types[prob.items[i]].shapes[0]];
-        s.hull_area * s.diam
-    };
-    order.sort_by(|&a, &b| key(b).partial_cmp(&key(a)).unwrap().then(a.cmp(&b)));
+    // largest first; `jitter` (the sigma of a log-normal factor) perturbs the order
+    let keys: Vec<f64> = (0..n)
+        .map(|i| {
+            let s = &prob.shapes[prob.types[prob.items[i]].shapes[0]];
+            s.hull_area * s.diam * if jitter > 0.0 { (jitter * rng.normal()).exp() } else { 1.0 }
+        })
+        .collect();
+    order.sort_by(|&a, &b| keys[b].partial_cmp(&keys[a]).unwrap().then(a.cmp(&b)));
     let cfg = SearchCfg { n_container: 1000, n_focus: 0, n_descents: 3, cd_pre: (0.25, 0.02), cd_fin: (0.01, 0.0001), snap: true };
     let strip = prob.mode == Mode::Strip;
     let l0 = if strip { (prob.total_area / prob.height * 1.25).max(len_lower_bound(prob)) } else { prob.bin_width };
@@ -367,16 +375,20 @@ fn tighten(sep: &mut Separator, cx: &mut Ctx, mut lay: Layout, b: usize, lb: f64
 
 /// Exploration phase on bin `b`: repeatedly shrink the bin, eliminate the collisions, tighten.
 /// `best` must be feasible; it is replaced whenever a shorter feasible layout is found.
-fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: Limit, lb: f64) {
+/// Gives up when `max_fails` eliminations in a row have failed (0 = never); returns whether
+/// it did, and the evaluation count at its last improvement.
+fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: Limit, lb: f64, max_fails: usize) -> (bool, u64) {
     let prob = sep.prob;
     let pr = cx.pr;
     let mut best_len = best.bins[b].len;
     let mut cur_len = best_len;
     let mut pool: Vec<(Layout, f64)> = Vec::new();
+    let mut fails = 0usize;
+    let mut ev_last = sep.evals();
     sep.restore(best);
     let mut next = (cur_len * (1.0 - pr.shrink)).max(lb);
     if next >= cur_len {
-        return;
+        return (false, ev_last);
     }
     sep.set_bin_len(b, next, cur_len * 0.5);
     cur_len = next;
@@ -400,11 +412,13 @@ fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: 
                 best_len = cur_len;
                 *best = lay;
                 best.bins[b].len = best_len;
+                ev_last = sep.evals();
                 cx.log.push((cx.secs(), best_len));
                 if pr.verbose > 1 {
                     eprintln!("[expl ] {:7.2}s len {:.4} density {:.3}%", cx.secs(), best_len, 100.0 * density(prob, best));
                 }
             }
+            fails = 0;
             next = (cur_len * (1.0 - pr.shrink)).max(lb);
             if next >= cur_len {
                 break;
@@ -413,9 +427,14 @@ fn explore(sep: &mut Separator, cx: &mut Ctx, b: usize, best: &mut Layout, lim: 
             cur_len = next;
             pool.clear();
         } else {
+            fails += 1;
+            if max_fails > 0 && fails >= max_fails {
+                return (true, ev_last);
+            }
             restart_from_pool(sep, &mut pool, res.lay, res.loss, pr);
         }
     }
+    (false, ev_last)
 }
 
 /// Compression phase on bin `b`: ever smaller shrink steps, always restarting from the best
@@ -536,7 +555,7 @@ fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
     let t0 = Instant::now();
     let mut rng = Rng::new(pr.seed);
     let lt0 = LossTable::new(prob, pr.loss_c, 0);
-    let mut best = construct(prob, &lt0, &mut rng);
+    let mut best = construct(prob, &lt0, &mut rng, 0.0);
     let mut cx = Ctx { pr, t0, log: vec![(t0.elapsed().as_secs_f64(), best.bins[0].len)], cmp_evals: 0 };
     let lb = len_lower_bound(prob);
     if pr.verbose > 0 {
@@ -544,7 +563,50 @@ fn solve_strip(prob: &Problem, pr: &Params) -> Outcome {
     }
     let mut sep = new_separator(prob, pr, best.clone(), &mut rng);
     let (lim_explore, lim_end) = limits(pr, t0);
-    explore(&mut sep, &mut cx, 0, &mut best, lim_explore, lb);
+    // Restarts.  The descent to a jammed layout takes seconds, the search around it can stay
+    // stuck for the rest of the run, and how good a layout a trajectory gets stuck at varies
+    // a lot from one trajectory to the next.  So a trajectory that keeps failing is abandoned
+    // for a new one from a fresh (perturbed) construction - unless too little budget is left
+    // for a new one to get as far as the best one did; then the best one gets the rest.
+    let mut n_traj = 0;
+    let mut best_age = 0u64;
+    loop {
+        let ev0 = sep.evals();
+        let mut cur = if n_traj == 0 { best.clone() } else { construct(prob, &lt0, &mut rng, 0.2) };
+        let (stalled, ev_impr) = explore(&mut sep, &mut cx, 0, &mut cur, lim_explore, lb, pr.restart_fails);
+        if pr.verbose > 1 && pr.restart_fails > 0 {
+            eprintln!("[traj ] {:7.2}s trajectory {} ended at {:.4} (best before: {:.4})", cx.secs(), n_traj + 1, cur.bins[0].len, best.bins[0].len);
+        }
+        if n_traj == 0 || cur.bins[0].len < best.bins[0].len {
+            best = cur;
+            best_age = ev_impr - ev0;
+        }
+        n_traj += 1;
+        if !stalled || lim_explore.reached(sep.evals()) {
+            break;
+        }
+        let left = if pr.max_evals > 0 {
+            lim_explore.evals.saturating_sub(sep.evals()) as f64
+        } else {
+            lim_explore.t.saturating_duration_since(Instant::now()).as_secs_f64() * sep.evals() as f64 / cx.secs().max(1e-9)
+        };
+        if left < best_age as f64 {
+            explore(&mut sep, &mut cx, 0, &mut best, lim_explore, lb, 0);
+            break;
+        }
+    }
+    // the history keeps the improvements of the overall best only
+    let mut shortest = f64::INFINITY;
+    cx.log.retain(|&(_, l)| {
+        let keep = l < shortest;
+        if keep {
+            shortest = l;
+        }
+        keep
+    });
+    if pr.verbose > 0 && n_traj > 1 {
+        eprintln!("[traj ] {} trajectories", n_traj);
+    }
     report_phase(&sep, &cx, prob, &best, "expl ");
     compress(&mut sep, &mut cx, 0, &mut best, lim_end, lb);
     finish(&mut sep, &mut cx, 0, best, lb)
@@ -629,7 +691,7 @@ fn solve_bins(prob: &Problem, pr: &Params) -> Outcome {
     let t0 = Instant::now();
     let mut rng = Rng::new(pr.seed);
     let lt0 = LossTable::new(prob, pr.loss_c, 0);
-    let mut best = construct(prob, &lt0, &mut rng);
+    let mut best = construct(prob, &lt0, &mut rng, 0.0);
     let cap = prob.bin_width * prob.height;
     let k_lb = ((prob.total_area / cap - 1e-9).ceil() as usize).max(1);
     let mut cx = Ctx { pr, t0, log: Vec::new(), cmp_evals: 0 };
@@ -672,7 +734,7 @@ fn solve_bins(prob: &Problem, pr: &Params) -> Outcome {
         best = lay;
         best.bins[b].len = len.min(prob.bin_width);
         cx.log.push((cx.secs(), best.bins[b].len));
-        explore(&mut sep, &mut cx, b, &mut best, lim_explore, lb);
+        explore(&mut sep, &mut cx, b, &mut best, lim_explore, lb, 0);
         let empty = (0..best.n()).all(|i| best.bin_of(best.x[i]) != b);
         if empty && k > 1 {
             best.bins.pop();

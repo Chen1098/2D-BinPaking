@@ -103,7 +103,7 @@ def report(a, insts, seeds):
     multi = any(len(v) > 1 for v in rows.values())
     print("| instance | kestrel | sparrow | difference | sparrow paper: expected | Q3 | best ever | best before sparrow |")
     print("|---|---|---|---|---|---|---|---|")
-    wins = n = 0
+    wins = losses = n = 0
     dsum = 0.0
     above = [0, 0, 0, 0]
     for inst in insts:
@@ -114,19 +114,21 @@ def report(a, insts, seeds):
         s = sum(r["sparrow"] for r in v) / len(v)
         kb, sb = max(r["kestrel"] for r in v), max(r["sparrow"] for r in v)
         n += 1
-        wins += k > s
+        # differences below 0.005 points count as ties (the two decimals shown are equal)
+        wins += k - s >= 0.005
+        losses += s - k >= 0.005
         dsum += k - s
         pe, pq, pb, pp = PAPER[inst]
         for i, ref in enumerate((pe, pq, pb, pp)):
             above[i] += (kb if i >= 2 else k) > ref
-        ks = f"**{k:.2f}**" if k > s else f"{k:.2f}"
-        ss = f"**{s:.2f}**" if s > k else f"{s:.2f}"
+        ks = f"**{k:.2f}**" if k - s >= 0.005 else f"{k:.2f}"
+        ss = f"**{s:.2f}**" if s - k >= 0.005 else f"{s:.2f}"
         if multi:
             ks += f" (best {kb:.2f})"
             ss += f" (best {sb:.2f})"
         print(f"| {LABEL.get(inst, inst)} | {ks} | {ss} | {k - s:+.2f} | {pe:.2f} | {pq:.2f} | {pb:.2f} | {pp:.2f} |")
     if n:
-        print(f"\nkestrel denser than sparrow on {wins} of {n} instances; mean difference {dsum / n:+.2f} points.")
+        print(f"\nkestrel denser on {wins}, sparrow denser on {losses}, tied on {n - wins - losses} of {n} instances; mean difference {dsum / n:+.2f} points.")
         print(f"kestrel above the paper's expected value on {above[0]}, above its third quartile on {above[1]}, "
               f"above the best layout its authors ever obtained on {above[2]}, above the best earlier method on {above[3]} of {n}.")
 
