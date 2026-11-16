@@ -101,7 +101,7 @@ def report(a, insts, seeds):
                     continue
                 rows.setdefault(inst, []).append(r)
     multi = any(len(v) > 1 for v in rows.values())
-    print("| instance | kestrel | sparrow | difference | sparrow paper: E(ρ) | Q3 | best ever | best before sparrow |")
+    print("| instance | kestrel | sparrow | difference | sparrow paper: expected | Q3 | best ever | best before sparrow |")
     print("|---|---|---|---|---|---|---|---|")
     wins = n = 0
     dsum = 0.0

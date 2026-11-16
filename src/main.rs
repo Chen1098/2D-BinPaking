@@ -32,6 +32,8 @@ OPTIONS:
 }
 
 fn main() {
+    // the time limit counts from here: parsing, preprocessing and the NFP fields included
+    let t0 = std::time::Instant::now();
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         usage();
@@ -97,28 +99,12 @@ fn main() {
             "compact" => pr.compact = f != 0.0,
             "relax" => pr.relax = f as usize,
             "move_covered" => pr.move_covered = f != 0.0,
-            "swap_cands" => pr.swap_cands = f as usize,
-            "restart_fails" => pr.restart_fails = f as usize,
             "finisher" => pr.finisher = f as usize,
             "finish_pd" => pr.finish_pd = f,
             "c0" => pr.loss_c.0 = f,
             "c1" => pr.loss_c.1 = f,
             "c2" => pr.loss_c.2 = f,
             "shrink" => pr.shrink = f,
-            "adapt_fails" => pr.adapt_fails = f as usize,
-            "shrink_min" => pr.shrink_min = f,
-            "split_random" => pr.split_random = f != 0.0,
-            "recut" => pr.recut = f,
-            "hop_fails" => pr.hop_fails = f as usize,
-            "hop_loosen" => pr.hop_loosen = f,
-            "hop_tau" => pr.hop_tau = f,
-            "hop_swaps" => pr.hop_swaps = f as usize,
-            "hop_mode" => pr.hop_mode = f as u8,
-            "hop_tight" => pr.hop_tight = f != 0.0,
-            "tighten_explore" => pr.tighten_explore = f != 0.0,
-            "cut_min" => pr.cut_min = f as usize,
-            "cut_iter" => pr.cut_iter = f as usize,
-            "cut_q" => pr.cut_q = f,
             "ex_iters" => pr.ex_iters = f as usize,
             "ex_strikes" => pr.ex_strikes = f as usize,
             "cm_iters" => pr.cm_iters = f as usize,
@@ -207,7 +193,6 @@ fn main() {
         "solve" => {}
         _ => usage(),
     }
-    let t0 = std::time::Instant::now();
     prob.prewarm(pr.workers.max(1));
     if pr.verbose > 0 {
         let (built, grids, bytes) = prob.field_stats();

@@ -79,11 +79,6 @@ impl Worker {
 }
 
 pub struct Separator<'a> {
-    /// diagnostics: smallest loss of the last `separate` call at its start and after 25, 50,
-    /// 100, 200, 400 and 800 iterations
-    pub curve: [f64; 7],
-    /// number of eliminations given up early as futile
-    pub n_cut: u64,
     pub prob: &'a Problem,
     pub lt: LossTable,
     pub lay: Layout,
@@ -132,9 +127,7 @@ impl<'a> Separator<'a> {
             .map(|_| Worker { lay: lay.clone(), loss: tr.loss.clone(), rng: rng.fork(), evals: 0, moves: 0, prof: [0.0; 8], order: Vec::new() })
             .collect();
         let pool = SpinPool::new(n_workers.max(1));
-        Separator {
-            curve: [f64::NAN; 7],
-            n_cut: 0, prob, lt, lay, tr, workers, rng, pool, gls, iters: 0, finisher: 0, finish_pd: 0.0, aux: 0, n_finish_try: 0, n_finish_ok: 0, wall: [0.0; 4] }
+        Separator { prob, lt, lay, tr, workers, rng, pool, gls, iters: 0, finisher: 0, finish_pd: 0.0, aux: 0, n_finish_try: 0, n_finish_ok: 0, wall: [0.0; 4] }
     }
 
     /// Work counter used for budgets: sample evaluations plus relaxation work
@@ -158,20 +151,6 @@ impl<'a> Separator<'a> {
     /// Replace the layout; losses are recomputed and the weights reset.
     pub fn restore(&mut self, lay: &Layout) {
         self.lay.clone_from(lay);
-        self.tr.recompute_all(self.prob, &self.lt, &self.lay);
-        self.tr.reset_weights();
-    }
-
-    /// Stretch bin `b` and the positions of its items by `factor` along the strip: the slack
-    /// this creates is spread evenly over the layout.
-    pub fn dilate_bin(&mut self, b: usize, factor: f64) {
-        let x0 = self.lay.bins[b].x0;
-        for i in 0..self.lay.n() {
-            if self.lay.bin_of(self.lay.x[i]) == b {
-                self.lay.x[i] = x0 + (self.lay.x[i] - x0) * factor;
-            }
-        }
-        self.lay.bins[b].len *= factor;
         self.tr.recompute_all(self.prob, &self.lt, &self.lay);
         self.tr.reset_weights();
     }
@@ -359,15 +338,11 @@ impl<'a> Separator<'a> {
     /// Try to remove all collisions from the current layout.  Stops when feasible, after
     /// `k_max` consecutive attempts of `n_max` non-improving iterations, or at the deadline.
     /// The separator is left at (and returns) the least infeasible layout found.
-    /// `futile = (i, l)`: give up after `i` iterations if the smallest loss is still above `l`.
-    pub fn separate(&mut self, cfg: &SearchCfg, n_max: usize, k_max: usize, limit: Limit, futile: Option<(usize, f64)>) -> SepResult {
+    pub fn separate(&mut self, cfg: &SearchCfg, n_max: usize, k_max: usize, limit: Limit) -> SepResult {
         let mut min_loss = self.tr.total_loss();
         let mut min_lay = self.lay.clone();
         let mut min_mat = self.tr.loss.clone();
         let mut strikes = 0;
-        let it_start = self.iters;
-        self.curve = [f64::NAN; 7];
-        self.curve[0] = min_loss;
         'outer: while strikes < k_max && min_loss > 0.0 {
             let mut no_imp = 0;
             let init_loss = self.tr.total_loss();
@@ -408,21 +383,6 @@ impl<'a> Separator<'a> {
                     no_imp += 1;
                 }
                 self.tr.update_weights(self.gls.0, self.gls.1, self.gls.2);
-                if let Some((it, thr)) = futile {
-                    if (self.iters - it_start) as usize == it && min_loss > thr {
-                        self.n_cut += 1;
-                        break 'outer;
-                    }
-                }
-                match self.iters - it_start {
-                    25 => self.curve[1] = min_loss,
-                    50 => self.curve[2] = min_loss,
-                    100 => self.curve[3] = min_loss,
-                    200 => self.curve[4] = min_loss,
-                    400 => self.curve[5] = min_loss,
-                    800 => self.curve[6] = min_loss,
-                    _ => {}
-                }
                 self.wall[1] += tw.elapsed().as_secs_f64();
                 if limit.reached(self.evals()) {
                     break 'outer;
