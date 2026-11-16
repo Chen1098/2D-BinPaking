@@ -4,7 +4,7 @@
 use crate::layout::*;
 use crate::problem::{Mode, Problem};
 use crate::rng::Rng;
-use crate::search::{refine, search_placement, Cand, RotCtx, SearchCfg};
+use crate::search::{refine, search_placement, snap, Cand, RotCtx, SearchCfg};
 use crate::separator::{Limit, Separator};
 use std::time::{Duration, Instant};
 
@@ -44,7 +44,7 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        let search = SearchCfg { n_container: 50, n_focus: 25, n_descents: 3, cd_pre: (0.25, 0.02), cd_fin: (0.01, 0.001) };
+        let search = SearchCfg { n_container: 50, n_focus: 25, n_descents: 3, cd_pre: (0.25, 0.02), cd_fin: (0.01, 0.001), snap: true };
         Params {
             seed: 1,
             workers: 3,
@@ -66,8 +66,8 @@ impl Default for Params {
             cm_strikes: 5,
             compact: true,
             relax: 60,
-            finisher: 0,
-            finish_pd: 0.03,
+            finisher: 30,
+            finish_pd: 0.01,
             verbose: 1,
         }
     }
@@ -122,7 +122,7 @@ pub fn construct(prob: &Problem, lt: &LossTable, rng: &mut Rng) -> Layout {
         s.hull_area * s.diam
     };
     order.sort_by(|&a, &b| key(b).partial_cmp(&key(a)).unwrap().then(a.cmp(&b)));
-    let cfg = SearchCfg { n_container: 1000, n_focus: 0, n_descents: 3, cd_pre: (0.25, 0.02), cd_fin: (0.01, 0.001) };
+    let cfg = SearchCfg { n_container: 1000, n_focus: 0, n_descents: 3, cd_pre: (0.25, 0.02), cd_fin: (0.01, 0.0001), snap: true };
     let strip = prob.mode == Mode::Strip;
     let l0 = if strip { (prob.total_area / prob.height * 1.25).max(len_lower_bound(prob)) } else { prob.bin_width };
     let mut lay = Layout {
@@ -188,7 +188,8 @@ pub fn compact(prob: &Problem, lt: &LossTable, lay: &mut Layout, rng: &mut Rng, 
                 if !e0.is_finite() {
                     continue;
                 }
-                refine(&mut rcs, lay, prob, Cand { k: 0, bin, x: lay.x[i], y: lay.y[i], e: e0 }, 0.02 * md, 1e-7 * md, rng, evals)
+                let c = refine(&mut rcs, lay, prob, Cand { k: 0, bin, x: lay.x[i], y: lay.y[i], e: e0 }, 0.02 * md, 1e-6 * md, rng, evals);
+                snap(&mut rcs, lay, prob, c, evals)
             };
             moved += (lay.x[i] - c.x).abs() + (lay.y[i] - c.y).abs();
             lay.x[i] = c.x;
@@ -282,8 +283,29 @@ fn disrupt(sep: &mut Separator, large_pct: f64) {
     // exchange the centroid positions, keep the orientations
     let ca = (sep.lay.x[a] + sa.centroid.x, sep.lay.y[a] + sa.centroid.y);
     let cb = (sep.lay.x[b] + sb.centroid.x, sep.lay.y[b] + sb.centroid.y);
+    let old = [(sep.lay.x[a], sep.lay.y[a]), (sep.lay.x[b], sep.lay.y[b])];
     sep.move_item_to(a, osa, cb.0 - sa.centroid.x, cb.1 - sa.centroid.y);
     sep.move_item_to(b, osb, ca.0 - sb.centroid.x, ca.1 - sb.centroid.y);
+    // Items that are now practically covered by a swapped item (their centroid lies inside
+    // it) move along into the space that item left behind, keeping their relative position.
+    for (k, &s) in [a, b].iter().enumerate() {
+        let os = sep.lay.os[s] as usize;
+        let (nx, ny) = (sep.lay.x[s], sep.lay.y[s]);
+        let (dx, dy) = (old[k].0 - nx, old[k].1 - ny);
+        let poly = &prob.shapes[os].poly;
+        let covered: Vec<usize> = (0..n)
+            .filter(|&c| c != a && c != b)
+            .filter(|&c| {
+                let sc = &prob.shapes[sep.lay.os[c] as usize];
+                let q = crate::geom::p(sep.lay.x[c] + sc.centroid.x - nx, sep.lay.y[c] + sc.centroid.y - ny);
+                q.x > 0.0 && q.x < prob.shapes[os].w && q.y > 0.0 && q.y < prob.shapes[os].h && crate::geom::point_in_poly(q, poly)
+            })
+            .collect();
+        for c in covered {
+            let osc = sep.lay.os[c] as usize;
+            sep.move_item_to(c, osc, sep.lay.x[c] + dx, sep.lay.y[c] + dy);
+        }
+    }
 }
 
 /// Keep track of rejected local optima and restart from a disrupted one of the better ones.

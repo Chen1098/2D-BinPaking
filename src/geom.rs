@@ -376,3 +376,82 @@ pub fn inflate(poly: &[P], d: f64) -> Vec<P> {
     }
     out
 }
+
+/// Conservative simplification of a counter-clockwise simple polygon: vertices are removed
+/// only by operations that *grow* the polygon (filling a concave corner, or extending the two
+/// neighbours of a short convex edge until they meet), cheapest first, until the added area
+/// would exceed `max_ratio` of the original area.  The result always contains the input.
+pub fn simplify_outward(poly: &[P], max_ratio: f64) -> Vec<P> {
+    let mut v: Vec<P> = poly.to_vec();
+    let mut budget = max_ratio * signed_area(poly).abs();
+    let empty = |v: &[P], a: P, b: P, c: P, skip: &[usize]| -> bool {
+        // no other vertex inside (or on) the counter-clockwise triangle (a, b, c)
+        for (j, q) in v.iter().enumerate() {
+            if skip.contains(&j) {
+                continue;
+            }
+            if orient(a, b, *q) >= 0.0 && orient(b, c, *q) >= 0.0 && orient(c, a, *q) >= 0.0 {
+                return false;
+            }
+        }
+        true
+    };
+    loop {
+        let n = v.len();
+        if n <= 4 {
+            break;
+        }
+        // candidates: (added area, kind, index[, new point])
+        let mut cands: Vec<(f64, u8, usize, P)> = Vec::with_capacity(2 * n);
+        for i in 0..n {
+            let (a, b, c) = (v[(i + n - 1) % n], v[i], v[(i + 1) % n]);
+            let o = orient(a, b, c);
+            if o < 0.0 {
+                // concave corner: fill triangle (a, c, b)
+                cands.push((-0.5 * o, 0, i, b));
+            } else {
+                // convex edge b -> c with convex ends: extend a->b and d->c until they meet
+                let d = v[(i + 2) % n];
+                if orient(b, c, d) > 0.0 {
+                    let (e1, e2) = (b - a, c - d);
+                    let den = cross(e1, e2);
+                    if den.abs() > 1e-300 {
+                        let t = cross(d - a, e2) / den;
+                        let u = cross(d - a, e1) / den;
+                        if t > 1.0 && u > 1.0 {
+                            let x = a + e1 * t;
+                            let add = 0.5 * orient(b, x, c).abs();
+                            cands.push((add, 1, i, x));
+                        }
+                    }
+                }
+            }
+        }
+        cands.sort_by(|p1, p2| p1.0.partial_cmp(&p2.0).unwrap());
+        let mut applied = false;
+        for &(add, kind, i, x) in &cands {
+            if add > budget {
+                break;
+            }
+            let (ia, ic) = ((i + n - 1) % n, (i + 1) % n);
+            if kind == 0 {
+                if empty(&v, v[ia], v[ic], v[i], &[ia, i, ic]) {
+                    v.remove(i);
+                    budget -= add;
+                    applied = true;
+                    break;
+                }
+            } else if empty(&v, v[i], x, v[ic], &[i, ic]) {
+                v[i] = x;
+                v.remove(ic);
+                budget -= add;
+                applied = true;
+                break;
+            }
+        }
+        if !applied {
+            break;
+        }
+    }
+    v
+}

@@ -221,7 +221,9 @@ fn same_polygon(a: &[P], b: &[P], tol: f64) -> bool {
 
 impl Problem {
     /// `min_sep`: minimum distance to keep between any two items (0 = items may touch).
-    pub fn new(raw: RawInstance, res: usize, rot_override: Option<&[f64]>, proxy: bool, min_sep: f64) -> Result<Problem, String> {
+    /// `simplify`: (vertex threshold, area ratio) - outlines with more vertices than the
+    /// threshold get a conservatively simplified collision shape.
+    pub fn new(raw: RawInstance, res: usize, rot_override: Option<&[f64]>, proxy: bool, min_sep: f64, simplify: (usize, f64)) -> Result<Problem, String> {
         let mut types = Vec::new();
         let mut shapes: Vec<Shape> = Vec::new();
         let mut items = Vec::new();
@@ -233,12 +235,19 @@ impl Problem {
             let dtol = 1e-9 * (bb0[2] - bb0[0]).max(bb0[3] - bb0[1]);
             let angles: &[f64] = rot_override.unwrap_or(&r.angles);
             let mut ids = Vec::new();
+            // collision outline: the item itself, or a slightly larger simplified version
+            let coll = if simplify.1 > 0.0 && orig.len() > simplify.0 {
+                clean_polygon(&simplify_outward(&orig, simplify.1)).unwrap_or_else(|| orig.clone())
+            } else {
+                orig.clone()
+            };
             for &ang in angles {
                 let rp0 = rotate_poly(&orig, ang);
+                let rpc = rotate_poly(&coll, ang);
                 let rp = if min_sep > 0.0 {
-                    clean_polygon(&inflate(&rp0, 0.5 * min_sep)).ok_or_else(|| format!("item {}: cannot apply the minimum separation", r.ext_id))?
+                    clean_polygon(&inflate(&rpc, 0.5 * min_sep)).ok_or_else(|| format!("item {}: cannot apply the minimum separation", r.ext_id))?
                 } else {
-                    rp0.clone()
+                    rpc
                 };
                 let bb = bbox(&rp);
                 let off = p(bb[0], bb[1]);

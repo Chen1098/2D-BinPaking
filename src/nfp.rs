@@ -354,6 +354,56 @@ impl Field {
         }
     }
 
+    /// Closest point of the NFP boundary to a displacement, where exact boundary data is at
+    /// hand (convex fields, and the band / near cells of gridded fields).  Works on both
+    /// sides of the boundary; used to snap placements into exact contact.
+    pub fn nearest_boundary(&self, dx: f64, dy: f64) -> Option<(f64, f64)> {
+        let best_on = |segs: &mut dyn Iterator<Item = [f64; 5]>| -> Option<(f64, f64)> {
+            let mut best = f64::INFINITY;
+            let mut q = (0.0, 0.0);
+            for s in segs {
+                let px = dx - s[0];
+                let py = dy - s[1];
+                let t = ((px * s[2] + py * s[3]) * s[4]).clamp(0.0, 1.0);
+                let (cx, cy) = (s[0] + t * s[2], s[1] + t * s[3]);
+                let d2 = (dx - cx) * (dx - cx) + (dy - cy) * (dy - cy);
+                if d2 < best {
+                    best = d2;
+                    q = (cx, cy);
+                }
+            }
+            if best.is_finite() {
+                Some(q)
+            } else {
+                None
+            }
+        };
+        match &self.kind {
+            Kind::Convex(c) => {
+                let n = c.v.len();
+                let mut it = (0..n).map(|i| seg5(c.v[i], c.v[(i + 1) % n]));
+                best_on(&mut it)
+            }
+            Kind::Grid(g) => {
+                let fx = (dx - g.ox) * g.inv_h;
+                let fy = (dy - g.oy) * g.inv_h;
+                if fx < -1.0 || fy < -1.0 || fx > g.nx as f64 + 1.0 || fy > g.ny as f64 + 1.0 {
+                    return None;
+                }
+                let ix = (fx.max(0.0) as usize).min(g.nx - 1);
+                let iy = (fy.max(0.0) as usize).min(g.ny - 1);
+                let c = iy * g.nx + ix;
+                if g.kind[c] != 2 {
+                    return None;
+                }
+                let b = g.band[g.band_of[c] as usize];
+                let mut it = g.segs[b.s0 as usize..b.s1 as usize].iter().cloned();
+                best_on(&mut it)
+            }
+            Kind::Empty => None,
+        }
+    }
+
     /// Interpolated overlap proxy (>= 0) when colliding, -1 when clear.  Requires a field
     /// built with a proxy.
     #[inline]

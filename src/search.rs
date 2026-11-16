@@ -15,6 +15,8 @@ pub struct SearchCfg {
     pub cd_pre: (f64, f64),
     /// (initial, final) step of the final refinement
     pub cd_fin: (f64, f64),
+    /// polish the result into exact contact with its neighbours
+    pub snap: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -186,7 +188,7 @@ impl<'a> RotCtx<'a> {
         acc
     }
 
-    fn build_local(&mut self, x: f64, y: f64, r: f64) {
+    pub fn build_local(&mut self, x: f64, y: f64, r: f64) {
         self.local.clear();
         for j in 0..self.nb.len() {
             if x > self.lox[j] - r && x < self.hix[j] + r && y > self.loy[j] - r && y < self.hiy[j] + r {
@@ -316,6 +318,56 @@ pub fn refine(rcs: &mut [RotCtx], lay: &Layout, prob: &Problem, start: Cand, ste
     cur
 }
 
+/// Exact-contact polish.  Sampling and coordinate descent only get *close* to a contact;
+/// here the placement is projected onto the exact NFP boundary of nearby neighbours
+/// (alternating between them for corner positions), which is what makes exact fits reachable.
+/// In constructive / compaction mode a snap is kept when it lowers the position score, in
+/// separation mode when it lowers the weighted collision loss.
+pub fn snap(rcs: &mut [RotCtx], lay: &Layout, prob: &Problem, start: Cand, evals: &mut u64) -> Cand {
+    let mut cur = start;
+    let rc = &mut rcs[cur.k];
+    let md = rc.w.min(rc.h);
+    let reach = if rc.lbf { 0.01 * md } else { f64::INFINITY };
+    let radius = 0.05 * md;
+    let mut cands: Vec<(f64, f64)> = Vec::new();
+    for _round in 0..4 {
+        if !((cur.x - rc.lcx).abs() <= rc.lr && (cur.y - rc.lcy).abs() <= rc.lr) {
+            rc.build_local(cur.x, cur.y, radius);
+        }
+        cands.clear();
+        for &j in &rc.local {
+            let nb = &rc.nb[j as usize];
+            let (dx, dy) = (nb.sg * (cur.x - nb.px), nb.sg * (cur.y - nb.py));
+            if !rc.lbf && nb.f.pd(dx, dy) <= 0.0 {
+                continue;
+            }
+            if let Some((qx, qy)) = nb.f.nearest_boundary(dx, dy) {
+                let (sx, sy) = (nb.px + nb.sg * qx, nb.py + nb.sg * qy);
+                if (sx - cur.x).abs() <= reach && (sy - cur.y).abs() <= reach {
+                    cands.push(lay.clamp_to_bin(prob, rc.os, cur.bin, sx, sy));
+                }
+            }
+        }
+        let mut best = cur;
+        for &(sx, sy) in &cands {
+            if sx == cur.x && sy == cur.y {
+                continue;
+            }
+            let e = rc.eval_local(sx, sy, f64::INFINITY, radius);
+            *evals += 1;
+            if e < best.e {
+                best = Cand { x: sx, y: sy, e, ..cur };
+            }
+        }
+        if best.e < cur.e {
+            cur = best;
+        } else {
+            break;
+        }
+    }
+    cur
+}
+
 /// Find a good placement for an item given one context per allowed orientation.
 ///
 /// `current`: the item's present (rotation index, x, y) when it is being repositioned.
@@ -403,7 +455,10 @@ pub fn search_placement(
         return None;
     }
     let md = rcs[b0.k].w.min(rcs[b0.k].h);
-    let r = refine(rcs, lay, prob, b0, md * cfg.cd_fin.0, md * cfg.cd_fin.1, rng, evals);
+    let mut r = refine(rcs, lay, prob, b0, md * cfg.cd_fin.0, md * cfg.cd_fin.1, rng, evals);
+    if cfg.snap && (r.e > 0.0 || current.is_none()) {
+        r = snap(rcs, lay, prob, r, evals);
+    }
     prof[4] += tp3.elapsed().as_secs_f64();
     Some(r)
 }

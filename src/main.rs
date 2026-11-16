@@ -23,6 +23,8 @@ OPTIONS:
       --rotations <list>  override allowed rotations, e.g. 0,90,180,270
       --min-sep <d>       keep at least distance d between items (default: may touch)
       --strict            shorthand for a separation of 1e-6 x the largest item dimension
+      --simplify <ratio>  simplify all collision outlines, growing them by at most this area
+                          ratio (default: 0.001 for outlines with more than 64 vertices; 0 = off)
       --res <n>           NFP grid resolution (default 64)
   -q, --quiet"
     );
@@ -40,6 +42,8 @@ fn main() {
     let mut res = 64usize;
     let mut rots: Option<Vec<f64>> = None;
     let mut min_sep: Option<f64> = None;
+    // by default only very detailed outlines (> 64 vertices) are simplified, by at most 0.1% area
+    let mut simplify: (usize, f64) = (64, 0.001);
     let mut rel_sep: Option<f64> = None;
     let mut mode_override: Option<String> = None;
     let mut bin_width_override: Option<f64> = None;
@@ -66,6 +70,10 @@ fn main() {
             "--min-sep" => min_sep = Some(val().parse().unwrap_or_else(|_| usage())),
             "--rel-sep" => rel_sep = Some(val().parse().unwrap_or_else(|_| usage())),
             "--strict" => rel_sep = Some(1e-6),
+            "--simplify" => {
+                let r: f64 = val().parse().unwrap_or_else(|_| usage());
+                simplify = (if r > 0.0 { 0 } else { usize::MAX }, r);
+            }
             "--mode" => mode_override = Some(val()),
             "--bin-width" => bin_width_override = Some(val().parse().unwrap_or_else(|_| usage())),
             "--rotations" => rots = Some(val().split(',').filter_map(|t| t.trim().parse().ok()).collect()),
@@ -109,6 +117,10 @@ fn main() {
             "n_descents" => {
                 pr.search.n_descents = f as usize;
                 pr.cmpr_search.n_descents = f as usize;
+            }
+            "snap" => {
+                pr.search.snap = f != 0.0;
+                pr.cmpr_search.snap = f != 0.0;
             }
             "cd_fin_min" => {
                 pr.search.cd_fin.1 = f;
@@ -166,7 +178,7 @@ fn main() {
         }
         sep = sep.max(rel * md);
     }
-    let prob = Problem::new(raw, res, rots.as_deref(), pr.loss_mode == 2, sep).unwrap_or_else(|e| {
+    let prob = Problem::new(raw, res, rots.as_deref(), pr.loss_mode == 2, sep, simplify).unwrap_or_else(|e| {
         eprintln!("error: {e}");
         std::process::exit(1)
     });
