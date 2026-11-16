@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Independent solution checker for kestrel (no third-party packages, exact rational arithmetic).
+"""Independent solution checker (no third-party packages, exact rational arithmetic).
 
     python tools/verify.py <instance.json|in.txt> <solution.json>
+
+Reads the solution files written by kestrel and those written by sparrow / jagua-rs.
 
 The checker shares no code with the solver.  It rebuilds every placed polygon from the
 *instance* file and the (rotation, translation) pairs of the *solution* file, then
@@ -153,9 +155,19 @@ def main():
         return 2
     items, height, bin_w = load_instance(sys.argv[1])
     sol = json.loads(open(sys.argv[2], encoding="utf-8").read(), parse_float=F, parse_int=F)
+    if "solution" in sol:
+        # a jagua-rs / sparrow solution file
+        claimed = sol["solution"].get("strip_width", 0)
+        placements = [
+            {"item_id": p["item_id"], "rotation": p["transformation"]["rotation"], "translation": p["transformation"]["translation"]}
+            for p in sol["solution"]["layout"]["placed_items"]
+        ]
+    else:
+        claimed = sol.get("strip_length", 0)
+        placements = sol["placements"]
     placed = []
     count = {}
-    for pl in sol["placements"]:
+    for pl in placements:
         iid = int(pl["item_id"])
         count[iid] = count.get(iid, 0) + 1
         tx, ty = F(pl["translation"][0]), F(pl["translation"][1])
@@ -221,7 +233,7 @@ def main():
     if bin_w is None:
         length = used[0]
         dens = total / (height * length)
-        print(f"strip length        : {float(length):.9f}   (solution file says {float(sol.get('strip_length', 0)):.9f})")
+        print(f"strip length        : {float(length):.9f}   (solution file says {float(claimed):.9f})")
         print(f"density             : {float(dens) * 100:.4f}%")
     else:
         frac = (nbins - 1) + used[-1] / bin_w

@@ -96,12 +96,21 @@ fn main() {
             "loss_mode" => pr.loss_mode = f as u8,
             "compact" => pr.compact = f != 0.0,
             "relax" => pr.relax = f as usize,
+            "move_covered" => pr.move_covered = f != 0.0,
+            "swap_cands" => pr.swap_cands = f as usize,
+            "restart_fails" => pr.restart_fails = f as usize,
             "finisher" => pr.finisher = f as usize,
             "finish_pd" => pr.finish_pd = f,
             "c0" => pr.loss_c.0 = f,
             "c1" => pr.loss_c.1 = f,
             "c2" => pr.loss_c.2 = f,
             "shrink" => pr.shrink = f,
+            "adapt_fails" => pr.adapt_fails = f as usize,
+            "shrink_min" => pr.shrink_min = f,
+            "hop_fails" => pr.hop_fails = f as usize,
+            "hop_loosen" => pr.hop_loosen = f,
+            "hop_tau" => pr.hop_tau = f,
+            "hop_swaps" => pr.hop_swaps = f as usize,
             "ex_iters" => pr.ex_iters = f as usize,
             "ex_strikes" => pr.ex_strikes = f as usize,
             "cm_iters" => pr.cm_iters = f as usize,
@@ -204,6 +213,8 @@ fn main() {
             t0.elapsed().as_secs_f64()
         );
     }
+    // the time limit covers the set-up as well
+    pr.time_limit = (pr.time_limit - t0.elapsed().as_secs_f64()).max(0.5);
     let out = solve(&prob, &pr);
     let v = verify(&prob, &out.lay);
     let feasible = v.max_overlap <= 10.0 * prob.tol && v.max_outside <= 10.0 * prob.tol;
@@ -217,6 +228,11 @@ fn main() {
         ("feasible", format!("{}", feasible)),
         ("max_overlap", format!("{:e}", v.max_overlap)),
         ("seconds", format!("{:.3}", t0.elapsed().as_secs_f64())),
+        ("seed", format!("{}", pr.seed)),
+        ("workers", format!("{}", pr.workers)),
+        ("evaluations", format!("{}", out.evals)),
+        // (seconds, length of the strip / open bin) at every improvement
+        ("history", format!("[{}]", out.log.iter().map(|(t, l)| format!("[{:.3}, {:?}]", t, l)).collect::<Vec<_>>().join(", "))),
     ];
     std::fs::write(base.with_extension("json"), kestrel::out::to_json(&prob, &out.lay, &extra)).ok();
     let title = format!("{} - length {:.4}, density {:.3}%", prob.name, out.len, 100.0 * out.density);
