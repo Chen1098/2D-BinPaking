@@ -1,0 +1,610 @@
+{
+  "name": "fu",
+  "min_item_separation": 0.0,
+  "items": [
+    {
+      "id": 0,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            10.0
+          ],
+          [
+            0.0,
+            10.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 1,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            10.0
+          ],
+          [
+            0.0,
+            10.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 2,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            14.0,
+            0.0
+          ],
+          [
+            14.0,
+            9.0
+          ],
+          [
+            0.0,
+            9.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 3,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            14.0,
+            0.0
+          ],
+          [
+            7.0,
+            7.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 4,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            9.0
+          ],
+          [
+            0.0,
+            0.0
+          ],
+          [
+            14.0,
+            9.0
+          ],
+          [
+            0.0,
+            9.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 5,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            14.0,
+            0.0
+          ],
+          [
+            14.0,
+            14.0
+          ],
+          [
+            0.0,
+            14.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 6,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            4.0
+          ],
+          [
+            10.0,
+            9.0
+          ],
+          [
+            0.0,
+            9.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 7,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            5.0,
+            0.0
+          ],
+          [
+            5.0,
+            9.0
+          ],
+          [
+            0.0,
+            9.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 8,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            14.0,
+            0.0
+          ],
+          [
+            14.0,
+            14.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 9,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            10.0
+          ],
+          [
+            0.0,
+            14.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 10,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            8.0
+          ],
+          [
+            4.0,
+            0.0
+          ],
+          [
+            8.0,
+            8.0
+          ],
+          [
+            0.0,
+            8.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    },
+    {
+      "id": 11,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            90.0,
+            180.0,
+            270.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            14.0,
+            0.0
+          ],
+          [
+            7.0,
+            12.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 1
+    }
+  ],
+  "strip_height": 38.0038,
+  "solution": {
+    "strip_width": 31.046057,
+    "layout": {
+      "container_id": 0,
+      "placed_items": [
+        {
+          "item_id": 5,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              17.045738,
+              24.003685
+            ]
+          }
+        },
+        {
+          "item_id": 2,
+          "transformation": {
+            "rotation": 90.0,
+            "translation": [
+              31.04213,
+              10.001799
+            ]
+          }
+        },
+        {
+          "item_id": 9,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              11.045383,
+              0.0023908615
+            ]
+          }
+        },
+        {
+          "item_id": 8,
+          "transformation": {
+            "rotation": 90.0,
+            "translation": [
+              17.042484,
+              24.003468
+            ]
+          }
+        },
+        {
+          "item_id": 0,
+          "transformation": {
+            "rotation": 90.0,
+            "translation": [
+              31.04562,
+              0.00022506714
+            ]
+          }
+        },
+        {
+          "item_id": 1,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              0.0009045601,
+              16.042942
+            ]
+          }
+        },
+        {
+          "item_id": 11,
+          "transformation": {
+            "rotation": 90.0,
+            "translation": [
+              22.014603,
+              10.00136
+            ]
+          }
+        },
+        {
+          "item_id": 4,
+          "transformation": {
+            "rotation": -90.0,
+            "translation": [
+              2.0450344,
+              16.042439
+            ]
+          }
+        },
+        {
+          "item_id": 6,
+          "transformation": {
+            "rotation": 90.0,
+            "translation": [
+              9.000306,
+              26.044811
+            ]
+          }
+        },
+        {
+          "item_id": 3,
+          "transformation": {
+            "rotation": -90.0,
+            "translation": [
+              10.022588,
+              31.011791
+            ]
+          }
+        },
+        {
+          "item_id": 7,
+          "transformation": {
+            "rotation": -90.0,
+            "translation": [
+              0.13929272,
+              5.000006
+            ]
+          }
+        },
+        {
+          "item_id": 10,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              8.0000725,
+              13.0010605
+            ]
+          }
+        }
+      ],
+      "density": 0.9178992
+    },
+    "density": 0.9178992,
+    "run_time_sec": 1196
+  }
+}

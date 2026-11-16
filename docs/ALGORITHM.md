@@ -20,7 +20,7 @@ machinery underneath and around that loop:
 | contacts | whatever precision the sampling reaches | **exact contact** by projection onto the NFP boundary; exact fits are feasible |
 | moves of the whole layout | none (single items are re-sampled) | **gravity compaction**, **push relaxation**, **jam squeeze** |
 | problem types | strip | strip **and bins** |
-| candidate placements evaluated per second | 1 | about 5 (same machine, same thread count, see the README) |
+| candidate placements evaluated per second | 1 | about 6 (3.7 to 7.9 across the benchmark; same machine, same thread count) |
 
 The rest of this document goes through the pieces in the order a query flows through them,
 and ends with the list of things that were tried and did *not* help.
@@ -184,11 +184,12 @@ nothing changed but the seed, MAO ends anywhere between 85.4 % and 86.6 % and DA
 on a small instance makes its last improvement within the first few hundred million
 evaluations.  The obvious question is how to use the stuck time.  All of the following were
 implemented and measured against the default on the same seeds; none made a difference that
-survived the noise, and none is in the code.
+survived the noise, and none is on by default.  (The restarts are still available as
+`--set restart_fails=30`; the code of the others is in the commit tagged `exp-snapshot`.)
 
 | idea | measured (mean density, default -> variant) |
 |---|---|
-| restart from a fresh construction after 30 failed eliminations in a row | MAO 85.90 -> 86.13, DAGLI 89.04 -> 88.78, MARQUES 90.96 -> 90.89 (1500 M evaluations, 4 seeds) |
+| restart from a fresh construction after 30 failed eliminations in a row | better on five instances, worse on four: ALBANO 88.76 -> 89.24, JAKOBS2 87.17 -> 87.72, SHAPES1 76.00 -> 76.36, MAO 85.90 -> 86.13, SHIRTS 89.38 -> 89.60, but SHAPES2 84.69 -> 84.36, DAGLI 89.04 -> 88.78, TROUSERS 91.93 -> 91.70, MARQUES 90.96 -> 90.89 (1500 M or 3000 M evaluations, 2 to 4 seeds) |
 | halve the shrink step after a failure, double it after a success | MAO 85.91 -> 85.73, DAGLI 88.41 -> 88.18 (8 seeds) |
 | cut the layout at a random position instead of the middle when shrinking | MAO 86.01 -> 85.74, DAGLI 88.30 -> 88.31 (6 seeds) |
 | give up an elimination early when it looks worse than earlier failed ones | MAO 86.01 -> 85.40, DAGLI 88.30 -> 87.92 (6 seeds) |
@@ -197,8 +198,15 @@ survived the noise, and none is in the code.
 | half of the budget for the compression phase instead of 20 % | SHIRTS 89.38 -> 89.38, TROUSERS 91.93 -> 91.98 (3000 M, 2 seeds) |
 | explore without tightening (tighten only the end result) | SHIRTS 88.87 -> 89.19 (600 M, 6 seeds), but DAGLI 89.24 -> 88.33, TROUSERS 91.70 -> 91.20, ALBANO 88.49 -> 88.95 (2 seeds); 3000 M: SHIRTS 89.38 -> 89.54, TROUSERS 91.93 -> 91.91 |
 
+(These runs let items touch, the default; the comparison in the README uses `--strict`.)
 The one decision that did matter is the one in section 2: which quantity the search
 minimises.
+
+One more thing was learned the hard way.  On JAKOBS2, whose pieces have integer coordinates,
+the default mode reaches the best known length 22 in a third of all short runs, because its
+layouts may contain exact fits; with any positive separation between the items - the rule
+sparrow plays by - the same search gets stuck at length 23 almost every time, and sparrow
+does better there.
 
 ## References
 

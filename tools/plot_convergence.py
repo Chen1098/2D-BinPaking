@@ -84,8 +84,10 @@ def main():
             prev = dd
         path.append(f"L{X(tmax):.1f},{Y(prev):.1f}")
         o.append(f'<path d="{" ".join(path)}" fill="none" stroke="{c}" stroke-width="2"/>')
-        o.append(f'<line x1="{L+16}" y1="{T+16+18*i}" x2="{L+44}" y2="{T+16+18*i}" stroke="{c}" stroke-width="2"/>')
-        o.append(f'<text x="{L+50}" y="{T+20+18*i}">{label}: {pts[-1][1]:.2f}%</text>')
+        # legend in the lower right corner, where no curve of a converging search runs
+        ly = H - B - 14 - 18 * (len(series) - 1 - i)
+        o.append(f'<line x1="{W-R-170}" y1="{ly-4}" x2="{W-R-142}" y2="{ly-4}" stroke="{c}" stroke-width="2"/>')
+        o.append(f'<text x="{W-R-136}" y="{ly}">{label}: {pts[-1][1]:.2f}%</text>')
     o.append("</svg>")
     open(out, "w", encoding="utf-8").write("\n".join(o) + "\n")
     return 0

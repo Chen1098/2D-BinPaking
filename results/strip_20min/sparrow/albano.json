@@ -1,0 +1,674 @@
+{
+  "name": "albano",
+  "min_item_separation": 0.0,
+  "items": [
+    {
+      "id": 0,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            180.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            86.0
+          ],
+          [
+            966.0,
+            142.0
+          ],
+          [
+            1983.0,
+            0.0
+          ],
+          [
+            2185.0,
+            238.0
+          ],
+          [
+            2734.0,
+            217.0
+          ],
+          [
+            3000.0,
+            767.0
+          ],
+          [
+            2819.0,
+            900.0
+          ],
+          [
+            2819.0,
+            1360.0
+          ],
+          [
+            3000.0,
+            1493.0
+          ],
+          [
+            2734.0,
+            2043.0
+          ],
+          [
+            2185.0,
+            2022.0
+          ],
+          [
+            1983.0,
+            2260.0
+          ],
+          [
+            966.0,
+            2118.0
+          ],
+          [
+            0.0,
+            2174.0
+          ],
+          [
+            0.0,
+            86.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 2
+    },
+    {
+      "id": 1,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            180.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            3034.0,
+            0.0
+          ],
+          [
+            3034.0,
+            261.0
+          ],
+          [
+            0.0,
+            261.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 2
+    },
+    {
+      "id": 2,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            180.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            173.0
+          ],
+          [
+            1761.0,
+            0.0
+          ],
+          [
+            2183.0,
+            650.0
+          ],
+          [
+            2183.0,
+            1010.0
+          ],
+          [
+            1761.0,
+            1660.0
+          ],
+          [
+            0.0,
+            1487.0
+          ],
+          [
+            0.0,
+            173.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 4
+    },
+    {
+      "id": 3,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            180.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            74.0,
+            0.0
+          ],
+          [
+            870.0,
+            119.0
+          ],
+          [
+            1666.0,
+            0.0
+          ],
+          [
+            1740.0,
+            125.0
+          ],
+          [
+            870.0,
+            305.0
+          ],
+          [
+            0.0,
+            125.0
+          ],
+          [
+            74.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 4
+    },
+    {
+      "id": 4,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            180.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            411.0,
+            65.0
+          ],
+          [
+            800.0,
+            0.0
+          ],
+          [
+            1189.0,
+            65.0
+          ],
+          [
+            1600.0,
+            0.0
+          ],
+          [
+            1500.0,
+            368.0
+          ],
+          [
+            800.0,
+            286.0
+          ],
+          [
+            100.0,
+            368.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 4
+    },
+    {
+      "id": 5,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            180.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            936.0,
+            0.0
+          ],
+          [
+            936.0,
+            659.0
+          ],
+          [
+            0.0,
+            659.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 4
+    },
+    {
+      "id": 6,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            180.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            56.0,
+            73.0
+          ],
+          [
+            1066.0,
+            143.0
+          ],
+          [
+            1891.0,
+            0.0
+          ],
+          [
+            2186.0,
+            288.0
+          ],
+          [
+            2573.0,
+            241.0
+          ],
+          [
+            2676.0,
+            926.0
+          ],
+          [
+            2594.0,
+            1366.0
+          ],
+          [
+            0.0,
+            1366.0
+          ],
+          [
+            56.0,
+            73.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 2
+    },
+    {
+      "id": 7,
+      "orientation": {
+        "rotation": {
+          "mode": "discrete",
+          "angles": [
+            0.0,
+            180.0
+          ]
+        }
+      },
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            2499.0,
+            0.0
+          ],
+          [
+            2705.0,
+            387.0
+          ],
+          [
+            2622.0,
+            934.0
+          ],
+          [
+            2148.0,
+            967.0
+          ],
+          [
+            1920.0,
+            1152.0
+          ],
+          [
+            1061.0,
+            1059.0
+          ],
+          [
+            0.0,
+            1125.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      },
+      "min_quality": null,
+      "demand": 2
+    }
+  ],
+  "strip_height": 4900.0,
+  "solution": {
+    "strip_width": 9793.169,
+    "layout": {
+      "container_id": 0,
+      "placed_items": [
+        {
+          "item_id": 0,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              5694.1226,
+              3391.6062
+            ]
+          }
+        },
+        {
+          "item_id": 0,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              0.16345215,
+              2588.5674
+            ]
+          }
+        },
+        {
+          "item_id": 6,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              2977.3276,
+              3272.4375
+            ]
+          }
+        },
+        {
+          "item_id": 6,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              2677.5894,
+              2705.8118
+            ]
+          }
+        },
+        {
+          "item_id": 7,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              3642.3445,
+              6.270508
+            ]
+          }
+        },
+        {
+          "item_id": 7,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              936.58984,
+              0.0028686523
+            ]
+          }
+        },
+        {
+          "item_id": 2,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              9792.513,
+              2188.3225
+            ]
+          }
+        },
+        {
+          "item_id": 2,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              9781.823,
+              3847.352
+            ]
+          }
+        },
+        {
+          "item_id": 2,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              5694.356,
+              2978.737
+            ]
+          }
+        },
+        {
+          "item_id": 2,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              5697.4873,
+              1319.0303
+            ]
+          }
+        },
+        {
+          "item_id": 1,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              5195.095,
+              4899.957
+            ]
+          }
+        },
+        {
+          "item_id": 1,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              5195.131,
+              4638.9404
+            ]
+          }
+        },
+        {
+          "item_id": 4,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              6354.3774,
+              399.46533
+            ]
+          }
+        },
+        {
+          "item_id": 4,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              9334.1455,
+              368.02826
+            ]
+          }
+        },
+        {
+          "item_id": 4,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              8193.157,
+              4506.535
+            ]
+          }
+        },
+        {
+          "item_id": 4,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              6234.0757,
+              0.06071472
+            ]
+          }
+        },
+        {
+          "item_id": 5,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              936.5666,
+              1319.3533
+            ]
+          }
+        },
+        {
+          "item_id": 5,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              9764.296,
+              4468.076
+            ]
+          }
+        },
+        {
+          "item_id": 5,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              936.12134,
+              659.0266
+            ]
+          }
+        },
+        {
+          "item_id": 5,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              7877.496,
+              3847.4038
+            ]
+          }
+        },
+        {
+          "item_id": 3,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              1926.3743,
+              1059.3132
+            ]
+          }
+        },
+        {
+          "item_id": 3,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              7605.8433,
+              1329.0846
+            ]
+          }
+        },
+        {
+          "item_id": 3,
+          "transformation": {
+            "rotation": -180.0,
+            "translation": [
+              7693.245,
+              1129.7523
+            ]
+          }
+        },
+        {
+          "item_id": 3,
+          "transformation": {
+            "rotation": 0.0,
+            "translation": [
+              8052.504,
+              310.59
+            ]
+          }
+        }
+      ],
+      "density": 0.88893265
+    },
+    "density": 0.88893265,
+    "run_time_sec": 1184
+  }
+}

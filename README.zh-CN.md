@@ -1,5 +1,7 @@
 # kestrel —— 二维不规则排样 / 装箱求解器
 
+[![CI](https://github.com/Chen1098/2D-BinPaking/actions/workflows/ci.yml/badge.svg)](https://github.com/Chen1098/2D-BinPaking/actions/workflows/ci.yml)
+
 <p align="center">
   <img src="results/strip_20min/swim.svg" height="250" alt="SWIM"/>
   <img src="results/strip_20min/trousers.svg" height="250" alt="TROUSERS"/>
@@ -9,11 +11,13 @@
 固定尺寸板材。它是对本仓库原有“玩具级”解法的完全重写（Rust，无几何库依赖），目标是和已发表的最好
 结果正面比较。
 
-> **一句话结论。** 在不规则条带排样文献通用的 13 个经典基准实例上，按照当前最强论文
-> （[sparrow](https://github.com/JeroenGar/sparrow)，Gardeyn、Vanden Berghe、Wauters，
-> *European Journal of Operational Research* 2026）的实验协议（每次 20 分钟、3 线程），让两个求解器
-> **在同一台机器上同时运行**，kestrel 在 **RESULT_WINS** 个实例上得到更密的排样，平均高出
-> **RESULT_MEAN** 个百分点。所有排样结果都由一个独立的校验程序用精确有理数运算确认无重叠。
+> **一段话结论。** 对照对象是 [sparrow](https://github.com/JeroenGar/sparrow)（Gardeyn、
+> Vanden Berghe、Wauters，*European Journal of Operational Research* 2026）：在不规则条带排样的
+> 13 个经典基准实例上，它的最好结果全部追平或超过了此前所有方法。两个求解器按该论文的实验协议
+> （每次 20 分钟、3 线程）**在同一台机器上同时运行**这 13 个实例。20 分钟后，kestrel 在 **11** 个
+> 实例上更密，sparrow 在 **1** 个上更密，**1** 个持平；平均领先 **0.48** 个百分点。kestrel 超过
+> “sparrow 跑满 20 分钟的最终结果”所需时间的中位数是 **48 秒**；在更慢的机器上，它有 9 个实例的结果
+> 高于论文报告的 sparrow 期望值。两个求解器的全部排样都由同一个独立校验程序用精确有理数运算复核。
 
 [English](README.md) · [算法原理](docs/ALGORITHM.md) · [基准测试](#基准测试) · [局限](#它不是什么)
 
@@ -63,34 +67,93 @@ RESULT name=swim bins=1 len=5596.689844 density=79.0411% feasible=true ...
 
 ### 测试协议
 
-对照对象是 *sparrow*（EJOR 2026）。它是目前文献公认的最强方法：在这套基准上全面超过了之前所有方法
-（Elkeran 2013、Sato 等 2019……），原文的说法是“有些实例上的领先幅度出乎意料地大”。它的实验设置是
-**每次运行 20 分钟、3 线程**。
-
-论文里的数字来自另一台机器（而且每个实例跑了 100 次），所以这里直接做同机对比：
-
 * sparrow 从源码编译（提交 `67bfaf8`，v0.3.0，`--features simd,only_final_svg`，
-  `target-cpu=native`），使用它的默认配置；
+  `target-cpu=native`），使用它的默认配置。
 * 对每个实例，sparrow 和 kestrel **在同一台笔记本上同一时刻启动**（Intel Core Ultra 5 125H，
-  Windows 11），各用 3 线程、限时 1200 秒，种子编号相同、进程优先级相同、读取同一个实例文件；
-* kestrel 使用 `--strict`，即零件之间严格分离，与 sparrow 的可行性标准一致；
-* kestrel 的结果再用 [`tools/verify.py`](tools/verify.py) 复核：它与求解器不共享任何代码，
-  用精确有理数运算计算所有零件两两之间的相交面积。下表的密度就是这个校验器重新算出来的。
+  Windows 11），各用 3 线程，时间限制相同、种子编号相同、进程优先级相同、读取同一个实例文件；
+  同时跑两对。这样机器上其他负载对两个求解器的影响是一样的。
+* kestrel 使用 `--strict`，即零件之间严格保持间距——sparrow 一向如此。
+* 跑完后，**双方**的排样都用 [`tools/verify.py`](tools/verify.py) 复核：它与两个求解器都不共享
+  代码，用精确有理数运算计算所有零件两两之间的相交面积。双方所有排样的重叠面积都恰好为 0，
+  下表的密度就是这个校验器重新算出来的。
+* 整个流程就是一个脚本：
+  `python tools/paired_benchmark.py --sparrow <sparrow 可执行文件> --time 1200 --seeds 1`。
 
-测试期间这台笔记本还在正常使用，这会同等地拖慢两个求解器；在这些运行里，kestrel 每秒评估的候选
-位置数是 sparrow 的 RESULT_SPEED。
+### 20 分钟（sparrow 论文的协议）
 
-### 结果（密度 %，越高越好）
+密度 %，越高越好。
 
-RESULT_TABLE
+| 实例 | kestrel | sparrow | 差值 | kestrel 超过 sparrow 最终结果所用时间 | 论文中 sparrow 的期望值 | 上四分位 | 作者得到过的最好值 |
+|---|---|---|---|---|---|---|---|
+| albano | **89.59** | 88.89 | +0.69 | 9.0 s | 89.47 | 89.58 | 89.82 |
+| dagli | **89.15** | 88.66 | +0.48 | 21 s | 89.26 | 89.50 | 90.17 |
+| fu | **92.40** | 91.79 | +0.61 | 1.0 s | 92.24 | 92.40 | 92.41 |
+| jakobs1 | 89.08 | 89.08 | +0.00 | - | 89.09 | 89.09 | 89.26 |
+| jakobs2 | 84.18 | **84.88** | -0.71 | - | 84.77 | 85.25 | 87.73 |
+| mao | **86.54** | 86.32 | +0.22 | 301 s | 86.14 | 86.45 | 86.87 |
+| marques | **91.51** | 90.96 | +0.55 | 48 s | 90.93 | 91.02 | 92.02 |
+| shapes0 | **68.78** | 67.90 | +0.89 | 19 s | 68.60 | 68.79 | 69.98 |
+| shapes1 | **76.72** | 75.22 | +1.49 | 171 s | 75.69 | 75.97 | 76.73 |
+| shapes2 (blaz1) | **84.97** | 84.13 | +0.84 | 32 s | 84.68 | 84.88 | 86.23 |
+| shirts | **89.79** | 89.74 | +0.05 | 1105 s | 89.66 | 89.84 | 90.92 |
+| swim | **78.03** | 77.24 | +0.79 | 325 s | 78.26 | 78.55 | 79.83 |
+| trousers | **91.87** | 91.51 | +0.36 | 890 s | 91.73 | 91.93 | 92.62 |
 
-最后四列引自 sparrow 论文：它 100 次运行的期望密度和上四分位数（在更快的台式机 CPU 上）、作者得到过的
-最好排样，以及更早方法的最好结果。
+“kestrel 超过 sparrow 最终结果所用时间”指 kestrel 运行到第几秒时，它的当前最好排样已经比 sparrow
+跑满 20 分钟的最终排样更密。最后三列引自 sparrow 论文：100 次运行的期望密度和上四分位数（在更快的
+台式机 CPU Ryzen 9 7950X 上），以及作者在全部实验中得到过的最好排样。
 
-RESULT_NOTES
+怎么读这张表：
 
-排样图和解文件在 [`results/strip_20min/`](results/strip_20min)；运行
-`python tools/verify.py data/strip/<name>.json results/strip_20min/<name>.json` 可复现校验。
+* **JAKOBS1** 持平：两个求解器最终停在同一个排样长度（11.000）。
+* **JAKOBS2** 是 sparrow 赢。这个实例的零件都是整数坐标，最好的排样是“严丝合缝”的拼图。
+  用 `--strict` 时 kestrel 让所有零件之间保留微小间距，这也是 sparrow 一贯的做法（sparrow 排样里
+  最小的间隙是同一量级）；在这条规则下 sparrow 找到了更好的排样。kestrel 的默认模式允许零件
+  精确贴合，这时 6 次短时间运行里有 2 次达到已知最优长度 22（87.72 %）——但精确贴合的排样在校验器的
+  有理数运算下并非“恰好零重叠”（校验器报告的重叠是零件面积的 2e-8），所以这些结果不计入本对比。
+* **SHAPES1**（76.72 %）和 **FU**（92.40 %）与 sparrow 作者全部实验中的最好结果（76.73 %、
+  92.41 %）相差不到 0.01 个百分点。
+* **SHIRTS** 接近持平；从第 2 分钟到第 18 分钟是 sparrow 领先。
+* 有 9 个实例，kestrel 从最初几秒到最后一直领先。
+
+<p align="center">
+  <img src="results/convergence_swim.svg" width="640" alt="SWIM 上密度随时间的变化"/>
+</p>
+
+### 60 秒
+
+同样的流程，时间限制改为 1 分钟，每个实例跑三对（种子 1、2、3）。
+
+| 实例 | kestrel（3 次平均） | sparrow（3 次平均） | 差值 | kestrel 更密的对数 |
+|---|---|---|---|---|
+| albano | **89.20** | 87.80 | +1.41 | 3 / 3 |
+| dagli | **88.66** | 86.55 | +2.11 | 2 / 3 |
+| fu | **91.99** | 90.57 | +1.42 | 3 / 3 |
+| jakobs1 | **89.08** | 89.07 | +0.01 | 3 / 3 |
+| jakobs2 | **83.94** | 82.99 | +0.95 | 2 / 3 |
+| mao | **85.49** | 84.23 | +1.26 | 3 / 3 |
+| marques | **90.93** | 89.75 | +1.18 | 3 / 3 |
+| shapes0 | **68.00** | 66.65 | +1.35 | 3 / 3 |
+| shapes1 | **75.10** | 73.65 | +1.46 | 3 / 3 |
+| shapes2 (blaz1) | **85.00** | 82.80 | +2.20 | 3 / 3 |
+| shirts | **89.13** | 88.82 | +0.31 | 3 / 3 |
+| swim | **76.87** | 76.20 | +0.66 | 2 / 3 |
+| trousers | **91.39** | 91.01 | +0.38 | 2 / 3 |
+
+按平均值，kestrel 在全部 13 个实例上都更密（平均领先 1.13 个百分点）；39 对运行中有 35 对是 kestrel 更密。
+
+### 优势从哪里来
+
+sparrow 对每个候选位置都要拿零件和周围的多边形做碰撞检测。kestrel 则为每一对形状预先算好
+“相对位置落在哪个区域就会相撞”（临界多边形 NFP），以及“撞得有多严重”的一张图，之后同样的问题
+只需查一次表。在上面的运行中，kestrel 每秒评估的候选位置数大约是 sparrow 的 6 倍（随实例不同在
+3.7～7.9 倍之间）——而搜索框架本身就是 sparrow 的。此外还有一些依赖精确几何的操作：把所有零件滑到
+精确接触，以及把整个排样“挤”到卡死为止。[docs/ALGORITHM.md](docs/ALGORITHM.md) 有完整说明，
+也列出了试过但没有效果的想法。
+
+双方的排样图和解文件都在 [`results/strip_20min/`](results/strip_20min)；运行
+`python tools/verify.py data/strip/<name>.json results/strip_20min/kestrel/<name>.json`
+（或 `.../sparrow/<name>.json`）可重复校验。
 
 <p align="center">
   <img src="results/strip_20min/shirts.svg" height="170" alt="SHIRTS"/>
@@ -102,30 +165,21 @@ RESULT_NOTES
   <img src="results/strip_20min/dagli.svg" height="200" alt="DAGLI"/>
 </p>
 
-### 优势从哪里来
-
-用确定性预算测得（每次运行 1.5 亿次位置评估，SHIRTS / SWIM / TROUSERS 各 4 个种子；
-`tools/bench.py` 可以复现每一行）：
-
-| 变体 | 平均密度 |
-|---|---|
-| 精确 NFP 场 + 穿透深度损失 | 84.88 % |
-| + 重叠代理损失，每次查询现算（单次评估慢 7 倍） | 85.42 % |
-| + 把同一个代理预计算成场（kestrel 的做法） | 85.52 % |
-
-再加上比“直接在多边形上做碰撞检测”的引擎高 5–6 倍的评估速度，这就是领先的来源。
-设计细节见 [docs/ALGORITHM.md](docs/ALGORITHM.md)。
-
 ## 它不是什么
 
 * **不是最优性证明。** 这是启发式算法；这些实例的理论下界远低于任何已知排样。
-* **不是新的纪录表。** RESULT_RECORDS_ZH
-* **统计样本很少。** 论文每个实例跑 100 次；上表每个实例、每个求解器只有 RESULT_NSEEDS_ZH，
-  因为每一对运行要占用笔记本 20 分钟。领先幅度相对论文报告的运行间波动（四分位距 0.2–0.6 个点）
-  是大的，但单次运行终究是单次运行。
+* **统计样本很少。** 论文每个实例跑 100 次；上面 20 分钟的表每个实例只有一对运行，60 秒的表有三对，
+  因为每一对 20 分钟的运行要占用笔记本 20 分钟。这类搜索单次运行的结果会有零点几个百分点的波动
+  （论文报告的四分位距是 0.2–0.6），所以单看某一行里这么大的差距意义不大，要看 13 行的整体情况。
+* **参数是在基准上调的。** 少数几个不属于 sparrow 的参数，是在这同一批实例上选定的。
+* **时间越长差距越小。** kestrel 在第一分钟遥遥领先，20 分钟后领先幅度变小。它的速度让它用几秒钟
+  达到 sparrow 几分钟才能达到的水平；但这些实例上最后零点几个百分点靠的是“找到另一种排法”，
+  这一点上两个求解器的搜索方式相同。在 SHIRTS 和 JAKOBS2 上，光靠速度不足以领先。
 * **只支持离散旋转。** 任意角度旋转用固定的若干角度近似；sparrow 原生支持连续旋转。
 * **内存随“不同朝向形状数”的平方增长**（每一对形状一个场）。几百种不同形状没问题，几千种不行。
 * **只支持简单多边形和矩形容器。** 零件内部的孔被忽略（当作实心），不支持不规则外形或带缺陷的板材。
+* **装箱模式没有外部对比。** 它有测试（能找到完美装箱，结果经过精确校验），但没有和装箱问题的文献
+  结果做基准对比。
 
 ## 仓库结构
 
@@ -133,13 +187,14 @@ RESULT_NOTES
 src/geom.rs       点、多边形、凸包、偏移、轮廓简化
 src/decomp.rs     凸分解（耳切法 + Hertel-Mehlhorn 合并）
 src/nfp.rs        精确 NFP（临界多边形）场
-src/problem.rs    实例、带朝向的形状、惰性构建的场表
+src/problem.rs    实例、带朝向的形状、场表
 src/search.rs     位置搜索：采样、坐标下降、精确吸附
 src/separator.rs  引导式局部搜索、推挤松弛
 src/solve.rs      条带 / 装箱主流程、压实、挤压
 src/pool.rs       自旋等待的并行池
-tools/verify.py   独立的精确校验器
-tools/bench.py    基准测试脚本
+tools/verify.py            独立的精确校验器（kestrel 和 sparrow 的解文件都能读）
+tools/paired_benchmark.py  与 sparrow 的同机并排基准
+tools/bench.py             kestrel 参数的确定性 A/B 测试
 data/             基准实例
 results/          上表对应的排样结果
 ```
@@ -149,16 +204,17 @@ results/          上表对应的排样结果
 
 ## 历史
 
-本仓库的第一个版本（2023 年）把每个多边形用外接矩形包起来，然后在板上一格一格地扫描找空位，它仍然
+本仓库的第一个版本（2023 年）把每个多边形用外接矩形包起来，然后在板上一格一格地扫描找空位；它仍然
 保留在 git 历史里。在它自带的测试文件上（`data/legacy/in.txt`：700 x 700 的板、57 个随机凸多边形），
-它把外接矩形铺满了几乎整块板；kestrel 把同样的多边形排进了板左侧 RESULT_LEGACY 的范围。
+它的外接矩形铺开占满了整块板（699 x 658）。kestrel 用 30 秒把同样的多边形排进了板长方向的前 432
+个单位——板的 62 %。
 
 ## 参考与致谢
 
 * J. Gardeyn, G. Vanden Berghe, T. Wauters, *An open-source heuristic to reboot 2D nesting
   research*, EJOR 2026（[arXiv:2509.13329](https://arxiv.org/abs/2509.13329)）。kestrel 的搜索主循环
   （采样移动、引导式局部搜索的权重、探索与压缩两个阶段）沿用了这篇论文，碰撞度量也是论文里的重叠代理，
-  只是改成了预计算。正因为 sparrow 开源，同机对比才成为可能。
+  只是改成了查表。正因为 sparrow 开源，同机对比才成为可能。
 * 基准实例来自 [ESICUP](https://www.euro-online.org/websites/esicup/data-sets/)，使用 sparrow 仓库
   附带的 JSON 版本（MIT 许可）。
 * 其余参考文献见 [docs/ALGORITHM.md](docs/ALGORITHM.md)。

@@ -29,3 +29,7 @@ python tools/verify.py data/strip/swim.json results/strip_20min/sparrow/swim.jso
 
 It prints the exact overlap area of the worst pair (0 for every file here), the strip length
 and the density.
+
+The 60-second table of the main README comes from the same script with `--time 60 --seeds
+1,2,3`; its 78 layouts were checked in the same way and are not stored here.
+
